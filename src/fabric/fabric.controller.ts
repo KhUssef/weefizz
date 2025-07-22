@@ -1,6 +1,6 @@
 import { Controller, Post, Get, Put, Delete, Body, Param } from '@nestjs/common';
 import { FabricService } from './fabric.service';
-import { Fabric } from './fabric.entity'; 
+import { Fabric } from './entities/fabric.entity'; 
 
 @Controller('fabric')
 export class FabricController {

@@ -5,8 +5,9 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
 } from 'typeorm';
-import { User } from '../user/entities/user.entity'; 
+import { User } from '../../user/entities/user.entity'; 
 
 @Entity()
 export class Fabric {
@@ -29,4 +30,7 @@ export class Fabric {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt?: Date;
 }

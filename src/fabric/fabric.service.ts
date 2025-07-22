@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BaseService } from '../common/generic.service'; // Adjust path as needed
-import { Fabric } from './fabric.entity'; // Adjust path as needed
+import { Fabric } from './entities/fabric.entity'; // Adjust path as needed
 
 @Injectable()
 export class FabricService extends BaseService<Fabric> {

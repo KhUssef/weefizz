@@ -1,4 +1,4 @@
-import { Fabric } from "src/fabric/fabric.entity";
+import { Fabric } from "src/fabric/entities/fabric.entity";
 import { PrimaryGeneratedColumn, Column, DeleteDateColumn, Entity, OneToMany } from "typeorm";
 @Entity()
 export class User {
