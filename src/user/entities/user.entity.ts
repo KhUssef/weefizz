@@ -20,7 +20,6 @@ export class User {
   @Column({ default: false }) 
   isEmailVerified: boolean;
 
-  @Column({ default: false })
   @OneToMany(() => Fabric, fabric => fabric.user)
   fabrics?: Fabric[];
 

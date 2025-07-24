@@ -1,15 +1,20 @@
-import { Controller, Post, Get, Put, Delete, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { FabricService } from './fabric.service';
 import { Fabric } from './entities/fabric.entity'; 
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('fabric')
 export class FabricController {
-  constructor(private readonly fabricService: FabricService) {}
+  constructor(private readonly fabricService: FabricService,) {}
 
-  @Post()
-  create(@Body() fabricDto: Fabric): Promise<Fabric> {
-    return this.fabricService.create(fabricDto);
-  }
+@UseGuards(JwtAuthGuard)
+@Post()
+async create(@Body() fabricDto: Partial<Fabric>, @Req() req: Request): Promise<Fabric> {
+  const user = req.user; 
+  const fabricWithUser = { ...fabricDto, user };
+  return this.fabricService.create(fabricWithUser);
+}
 
   @Get()
   findAll(): Promise<Fabric[]> {
@@ -41,3 +46,4 @@ export class FabricController {
         return this.fabricService.findFabricsByUser(userId);
     }
 }
+
