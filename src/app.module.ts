@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { User } from './auth/decorator/user.decorator';
 import { UserModule } from './user/user.module';
 import { FabricModule } from './fabric/fabric.module';
+import { GabaritModule } from './gabarit/gabarit.module';
 
 @Module({
   imports: [
@@ -22,7 +23,8 @@ import { FabricModule } from './fabric/fabric.module';
     }),
     AuthModule,
     UserModule,
-    FabricModule
+    FabricModule,
+    GabaritModule
   ],
 })
 export class AppModule {}

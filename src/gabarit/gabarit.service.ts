@@ -1,26 +1,59 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CreateGabaritDto } from './dto/create-gabarit.dto';
 import { UpdateGabaritDto } from './dto/update-gabarit.dto';
+import { Gabarit } from './entities/gabarit.entity';
+import { BaseService } from '../common/generic.service'; 
 
 @Injectable()
-export class GabaritService {
-  create(createGabaritDto: CreateGabaritDto) {
-    return 'This action adds a new gabarit';
+export class GabaritService extends BaseService<Gabarit> {
+  constructor(
+    @InjectRepository(Gabarit)
+    private readonly gabaritRepository: Repository<Gabarit>,
+  ) {
+    super(gabaritRepository);
   }
 
-  findAll() {
-    return `This action returns all gabarit`;
+  // Custom update method to handle file replacement
+  async updateWithFile(id: string, updateData: Partial<Gabarit>, newFilePath?: string): Promise<Gabarit> {
+    const existingGabarit = await this.findOne(id);
+    
+    // If new file is provided, delete the old file
+    if (newFilePath && existingGabarit.filePath) {
+      const fs = require('fs');
+      const path = require('path');
+      const oldFilePath = path.join(process.cwd(), existingGabarit.filePath);
+      
+      // Delete old file if it exists
+      if (fs.existsSync(oldFilePath)) {
+        fs.unlinkSync(oldFilePath);
+      }
+      
+      updateData.filePath = newFilePath;
+    }
+    
+    return this.update(id, updateData);
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} gabarit`;
+  // Override remove method to clean up files
+  async remove(id: string): Promise<void> {
+    const gabarit = await this.findOne(id);
+    
+    // Delete the associated file
+    if (gabarit.filePath) {
+      const fs = require('fs');
+      const path = require('path');
+      const filePath = path.join(process.cwd(), gabarit.filePath);
+      
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+    
+    // Call parent remove method
+    return super.remove(id);
   }
 
-  update(id: number, updateGabaritDto: UpdateGabaritDto) {
-    return `This action updates a #${id} gabarit`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} gabarit`;
-  }
+  // Add custom gabarit-specific methods here if needed
 }

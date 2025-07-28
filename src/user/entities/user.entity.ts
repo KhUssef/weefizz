@@ -1,4 +1,5 @@
 import { Fabric } from "src/fabric/entities/fabric.entity";
+import { Gabarit } from "src/gabarit/entities/gabarit.entity";
 import { PrimaryGeneratedColumn, Column, DeleteDateColumn, Entity, OneToMany } from "typeorm";
 @Entity()
 export class User {
@@ -22,5 +23,8 @@ export class User {
 
   @OneToMany(() => Fabric, fabric => fabric.user)
   fabrics?: Fabric[];
+  
+  @OneToMany(() => Gabarit, gabarit => gabarit.user)
+  gabarits?: Gabarit[];
 
 }
