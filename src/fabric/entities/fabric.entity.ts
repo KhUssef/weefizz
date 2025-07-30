@@ -6,8 +6,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  OneToMany,
 } from 'typeorm';
 import { User } from '../../user/entities/user.entity'; 
+import { Piece } from 'src/piece/entities/piece.entity';
 
 @Entity()
 export class Fabric {
@@ -27,6 +29,9 @@ export class Fabric {
 
   @ManyToOne(() => User, user => user.fabrics, { onDelete: 'CASCADE' })
   user: User;
+
+  @OneToMany(() => Piece, piece => piece.fabric, { onDelete: 'SET NULL' })
+  pieces: Piece[];
 
   @CreateDateColumn()
   createdAt: Date;
