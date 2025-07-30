@@ -22,6 +22,9 @@ export class Fabric {
   @Column('int')
   quantity: number;
 
+  @Column()
+  filePath: string;
+
   @ManyToOne(() => User, user => user.fabrics, { onDelete: 'CASCADE' })
   user: User;
 

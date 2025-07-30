@@ -5,6 +5,7 @@ import { CreateGabaritDto } from './dto/create-gabarit.dto';
 import { UpdateGabaritDto } from './dto/update-gabarit.dto';
 import { Gabarit } from './entities/gabarit.entity';
 import { BaseService } from '../common/generic.service'; 
+import { SafeUserDto } from '../user/dto/safe-user.dto'; 
 
 @Injectable()
 export class GabaritService extends BaseService<Gabarit> {
