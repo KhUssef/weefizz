@@ -1,68 +1,139 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:logger/logger.dart';
+import 'api_client.dart';
 
-class AuthService {
-  static final  String baseUrl = 'http://10.0.2.2:3000';
+class AuthService extends ChangeNotifier {
+  final _storage = FlutterSecureStorage();
+  static final _logger = Logger();
 
   String? accessToken;
   String? refreshToken;
-  bool connected = false;
+  bool _connected = false;
+  String? lastError;
 
-  Future<void> signUp(String email, String password) async {
-    final url = Uri.parse('$baseUrl/auth/signup');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
+  // Getter for connected state
+  bool get connected => _connected;
 
-    if (response.statusCode == 201 || response.statusCode == 200) {
-      print('Signup successful: ${response.body}');
-    } else {
-      print('Signup failed: ${response.statusCode}, ${response.body}');
+  // Global navigation key to access navigation from anywhere
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  // Method to update connected state and notify listeners
+  void _setConnected(bool value) {
+    _connected = value;
+    notifyListeners();
+    
+    // Redirect to login if disconnected
+    if (!value) {
+      _redirectToLogin();
     }
+  }
+
+  // Method to redirect to login page
+  void _redirectToLogin() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/login', 
+        (route) => false,
+      );
+    });
   }
 
   Future<void> login(String email, String password) async {
-    final url = Uri.parse('$baseUrl/auth');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
+    lastError = null;
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      accessToken = data['access_token'];
-      refreshToken = data['refresh_token'];
-      connected = true;
-
-      print('Login successful');
-      print('Access token: $accessToken');
-      print('Refresh token: $refreshToken');
-    } else {
-      connected = false;
-      print('Login failed: ${response.statusCode}, ${response.body}');
-    }
-  }
-  static Future<bool> signup(String email, String password, String username) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/auth/signup'), // Adjust this endpoint to your backend
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password, 'username': username}),
+      final response = await ApiClient.dio.post('/auth',
+        data: {'email': email, 'password': password},
       );
 
+      accessToken = response.data['access_token'];
+      refreshToken = response.data['refresh_token'];
+
+      await _storage.write(key: 'accessToken', value: accessToken);
+      await _storage.write(key: 'refreshToken', value: refreshToken);
+      _setConnected(true);
+
+      debugPrint('Login success');
+    } on DioException catch (e) {
+      _setConnected(false);
+
+      if (e.response?.statusCode == 401) {
+        lastError = 'Email ou mot de passe incorrect';
+      } else if (e.response?.statusCode == 400) {
+        lastError = 'Données de connexion invalides';
+      } else {
+        lastError = 'Erreur: ${e.response?.statusCode ?? 'réseau'}';
+      }
+
+      _logger.e('Login error', error: e);
+    } catch (e) {
+      _setConnected(false);
+      lastError = 'Erreur de réseau.';
+      _logger.e('Unexpected login error', error: e);
+    }
+  }
+
+  Future<void> logout() async {
+    accessToken = null;
+    refreshToken = null;
+    lastError = null;
+
+    await _storage.delete(key: 'accessToken');
+    await _storage.delete(key: 'refreshToken');
+
+    _setConnected(false);
+    debugPrint('Logout complete');
+  }
+
+  // Method to handle token refresh failures
+  void handleTokenRefreshFailure() {
+    _logger.w('Token refresh failed, logging out user');
+    logout();
+  }
+
+  static Future<bool> signup(String email, String password, String username) async {
+    try {
+      final response = await ApiClient.dio.post('/auth/signup',
+        data: {'email': email, 'password': password, 'username': username},
+      );
+
+      return response.statusCode == 201 || response.statusCode == 200;
+    } on DioException catch (e) {
+      _logger.e('Signup failed', error: e.response?.data ?? e.message);
+      return false;
+    }
+  }
+
+  Future<bool> sayhey() async {
+    final token = await _storage.read(key: 'accessToken');
+    
+    if (token == null) {
+      _logger.e('No access token found');
+      return false;
+    }
+
+    try {
+      final response = await ApiClient.dio.post('/auth/hey',
+        options: Options(
+          headers: {'Authorization': 'Bearer $token'},
+        ),
+      );
+      debugPrint('Say hey response: ${response.data}');
+
       if (response.statusCode == 201 || response.statusCode == 200) {
+        debugPrint('Say hey response: ${response.data}');
         return true;
       } else {
-        print('Signup failed: ${response.body}');
+        _logger.e('Say hey failed', error: response.data);
         return false;
       }
-    } catch (e) {
-      print('Signup error: $e');
+    } on DioException catch (e) {
+      _logger.e('Say hey error', error: e);
       return false;
     }
   }
 }
-

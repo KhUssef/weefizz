@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:weefizz/services/auth.service.dart';
 
@@ -360,12 +361,12 @@ class _SignupPageState extends State<SignupPage> {
 
   void _handleAppleSignup() {
     // Implement Apple signup logic
-    print('Apple signup tapped');
+    debugPrint('Apple signup tapped');
   }
 
   void _handleGoogleSignup() {
     // Implement Google signup logic
-    print('Google signup tapped');
+    debugPrint('Google signup tapped');
   }
 
   Future<void> _handleSignup() async {

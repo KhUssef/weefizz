@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:weefizz/services/auth.service.dart';
 import 'signup.dart';
+import 'main_navigation.dart';
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override
@@ -342,12 +344,12 @@ class _LoginPageState extends State<LoginPage> {
 
   void _handleAppleLogin() {
     // Implement Apple login logic
-    print('Apple login tapped');
+    debugPrint('Apple login tapped');
   }
 
   void _handleGoogleLogin() {
     // Implement Google login logic
-    print('Google login tapped');
+    debugPrint('Google login tapped');
   }
 
   Future<void> _handleLogin() async {
@@ -361,26 +363,67 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    await authService.login(email, password);
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      },
+    );
 
-    if (authService.connected) {
-      // Success
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Connexion réussie !')));
+    try {
+      await authService.login(email, password);
 
-      // Optionally, navigate to another page
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage()));
-    } else {
-      // Failed
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Échec de la connexion')));
+      // Hide loading indicator
+      if (mounted) Navigator.of(context).pop();
+
+      if (authService.connected) {
+        // Success - Show success message and navigate to home
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Connexion réussie !'),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // Navigate to home screen and remove login from stack
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => MainNavigationScreen()),
+          );
+        }
+      } else {
+        // Failed - Show specific error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(authService.lastError ?? 'Échec de la connexion'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Hide loading indicator
+      if (mounted) Navigator.of(context).pop();
+
+      // Show generic error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Une erreur est survenue. Veuillez réessayer.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _handleForgotPassword() async {
     // Implement forgot password logic
-    print("lol");
+    debugPrint("Forgot password tapped");
   }
 }
