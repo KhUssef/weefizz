@@ -53,17 +53,22 @@ export class AuthService {
       secret: this.refreshSecret,
       expiresIn: this.refreshExpires,
     });
-
+    console.log('Access Token:', accessToken);
+    console.log('Refresh Token:', refreshToken);
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
     };
   }
   async signup(signupDTO: signupDTO) {
-    const existingUser = await this.usersService.findByEmail(signupDTO.email);
-    if (existingUser) {
-      throw new UnauthorizedException('Email already in use');
+    try {    
+      const  existingUser = await this.usersService.findByEmail(signupDTO.email);
+    } catch (error) {
+      if (error.message !== 'User not found') {
+        throw new UnauthorizedException('Error checking existing user');
+      }
     }
+    
     const hashedPassword = await bcrypt.hash(signupDTO.password, 10);
     const user = await this.usersService.create({
       email : signupDTO.email,
@@ -76,6 +81,10 @@ export class AuthService {
       }
     }
   async refresh(refreshToken: string) {
+    console.log('Received refresh token:', refreshToken);
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token must be provided');
+    }
     try {
       const payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: this.refreshSecret,
@@ -93,6 +102,7 @@ export class AuthService {
         access_token: newAccessToken,
       };
     } catch (e) {
+      console.error('Refresh token verification failed:', e);
       throw new UnauthorizedException('Invalid refresh token');
     }
   }

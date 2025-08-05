@@ -33,6 +33,9 @@ export class Fabric {
   @OneToMany(() => Piece, piece => piece.fabric, { onDelete: 'SET NULL' })
   pieces: Piece[];
 
+  @Column({default: false})
+  favorited: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

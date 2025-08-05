@@ -34,10 +34,14 @@ export class Gabarit {
 
   @Column({ nullable: true, comment: 'scale used for picture to real life resizeing : 1 pixel in the picture corresponds to X cm in real life', default: 1 })
   scale: number;
-
+  
+  @Column({ default: false })
+  favorited: boolean;
+  
   @UpdateDateColumn()
   updatedAt: Date;
 
   @DeleteDateColumn()
   deletedAt?: Date; 
+
 }
