@@ -134,7 +134,16 @@ export class GabaritService {
     if (!gabarit) {
       throw new NotFoundException(`Gabarit with id ${id} not found or you don't have access to it`);
     }
-    return gabarit;
+    
+    // Convert file paths to URLs
+    const originalFilename = gabarit.filePath ? path.basename(gabarit.filePath) : null;
+    const iconFilename = gabarit.iconPath ? path.basename(gabarit.iconPath) : null;
+    
+    return {
+      ...gabarit,
+      originalImageUrl: originalFilename ? `/gabarit/image/${originalFilename}` : null,
+      iconImageUrl: iconFilename ? `/gabarit/image/${iconFilename}` : null,
+    };
   }
 
   async findGabaritsByUser(
@@ -149,15 +158,20 @@ export class GabaritService {
       take: limit,
     });
 
-    return gabarits.map(gabarit => ({
-      id: gabarit.id,
-      name: gabarit.name,
-      scale: gabarit.scale,
-      path: downsized ? gabarit.iconPath : gabarit.filePath,
-      favorited: gabarit.favorited,
-      createdAt: gabarit.createdAt,
-      updatedAt: gabarit.updatedAt,
-    }));
+    return gabarits.map(gabarit => {
+      const imagePath = downsized ? gabarit.iconPath : gabarit.filePath;
+      const filename = imagePath ? path.basename(imagePath) : null;
+      
+      return {
+        id: gabarit.id,
+        name: gabarit.name,
+        scale: gabarit.scale,
+        imageUrl: filename ? `/gabarit/image/${filename}` : null,
+        favorited: gabarit.favorited,
+        createdAt: gabarit.createdAt,
+        updatedAt: gabarit.updatedAt,
+      };
+    });
   }
 
   async update(id: string, updateData: Partial<Gabarit>, userId: number): Promise<any> {

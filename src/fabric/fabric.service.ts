@@ -84,7 +84,16 @@ export class FabricService{
     if (!fabric) {
       throw new NotFoundException(`Fabric with id ${id} not found or you don't have access to it`);
     }
-    return fabric;
+    
+    // Convert file paths to URLs
+    const originalFilename = fabric.filePath ? path.basename(fabric.filePath) : null;
+    const iconFilename = fabric.iconPath ? path.basename(fabric.iconPath) : null;
+    
+    return {
+      ...fabric,
+      originalImageUrl: originalFilename ? `/fabric/image/${originalFilename}` : null,
+      iconImageUrl: iconFilename ? `/fabric/image/${iconFilename}` : null,
+    };
   }
 
   async updateWithOwnership(id: string, updateData: Partial<Fabric>, userId: number, newFilePath?: string): Promise<any> {
@@ -215,15 +224,20 @@ export class FabricService{
     take: limit,
   });
 
-  return fabrics.map(fabric => ({
-    id: fabric.id,
-    type: fabric.type,
-    color: fabric.color,
-    path: downsized ? fabric.iconPath : fabric.filePath,
-    favorited: fabric.favorited,
-    createdAt: fabric.createdAt,
-    updatedAt: fabric.updatedAt,
-  }));
+  return fabrics.map(fabric => {
+    const imagePath = downsized ? fabric.iconPath : fabric.filePath;
+    const filename = imagePath ? path.basename(imagePath) : null;
+    
+    return {
+      id: fabric.id,
+      type: fabric.type,
+      color: fabric.color,
+      imageUrl: filename ? `/fabric/image/${filename}` : null,
+      favorited: fabric.favorited,
+      createdAt: fabric.createdAt,
+      updatedAt: fabric.updatedAt,
+    };
+  });
 }
 
 
