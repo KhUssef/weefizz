@@ -3,6 +3,7 @@ import 'home.dart';
 import 'materials.dart';
 import 'templates.dart';
 import 'profile.dart';
+import 'new_project_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -51,20 +52,26 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _onAddPressed() {
-    // Handle add button press based on current screen
-    switch (_currentIndex) {
-      case 0: // Home
-        print('Add new item from home');
-        break;
-      case 1: // Templates
-        print('Add new template');
-        break;
-      case 2: // Materials
-        print('Add new material');
-        break;
-      case 3: // Profile
-        print('Add new item from profile');
-        break;
+    // Navigate to new project screen from home
+    if (_currentIndex == 0) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => const NewProjectScreen(),
+        ),
+      );
+    } else {
+      // Handle add button press based on current screen
+      switch (_currentIndex) {
+        case 1: // Templates
+          print('Add new template');
+          break;
+        case 2: // Materials
+          print('Add new material');
+          break;
+        case 3: // Profile
+          print('Add new item from profile');
+          break;
+      }
     }
   }
 

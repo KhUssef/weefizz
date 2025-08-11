@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../widgets/template_card.dart';
+import 'package:provider/provider.dart';
+import '../services/templates.service.dart';
 
 class TemplatesScreen extends StatefulWidget {
   const TemplatesScreen({super.key});
@@ -120,11 +122,11 @@ class _TemplatesScreenState extends State<TemplatesScreen>
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  _buildTemplateList('Veste'),
-                  _buildTemplateList('Pantalon'),
-                  _buildTemplateList('Chaussure'),
-                  _buildTemplateList('Robe'),
-                  _buildTemplateList('Chemise'),
+                  _buildTemplateList(context, 'Veste'),
+                  _buildTemplateList(context, 'Pantalon'),
+                  _buildTemplateList(context, 'Chaussure'),
+                  _buildTemplateList(context, 'Robe'),
+                  _buildTemplateList(context, 'Chemise'),
                 ],
               ),
             ),
@@ -134,7 +136,8 @@ class _TemplatesScreenState extends State<TemplatesScreen>
     );
   }
 
-  Widget _buildTemplateList(String category) {
+  Widget _buildTemplateList(BuildContext context, String category) {
+    // For now the UI still uses static data; we only add pull-to-refresh hook to service
     final templates = [
       {
         'title': 'Veste complet moderne',
@@ -168,18 +171,22 @@ class _TemplatesScreenState extends State<TemplatesScreen>
       },
     ];
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: ListView.builder(
-        itemCount: templates.length,
-        itemBuilder: (context, index) {
-          final template = templates[index];
-          return TemplateCard(
-            title: template['title'] as String,
-            date: template['date'] as String,
-            image: template['image'] as String,
-          );
-        },
+    return RefreshIndicator(
+      onRefresh: () => context.read<TemplatesService>().fetchAllTemplates(),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: templates.length,
+          itemBuilder: (context, index) {
+            final template = templates[index];
+            return TemplateCard(
+              title: template['title'] as String,
+              date: template['date'] as String,
+              image: template['image'] as String,
+            );
+          },
+        ),
       ),
     );
   }

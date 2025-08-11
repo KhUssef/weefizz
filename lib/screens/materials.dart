@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../widgets/material_card.dart';
+import 'package:provider/provider.dart';
+import '../services/materials.service.dart';
+import 'package:provider/provider.dart';
+import '../services/materials.service.dart';
 
 class MaterialsScreen extends StatefulWidget {
-  const MaterialsScreen({super.key});
+  const MaterialsScreen({Key? key}) : super(key: key);
 
   @override
   State<MaterialsScreen> createState() => _MaterialsScreenState();
 }
 
-class _MaterialsScreenState extends State<MaterialsScreen>
-    with SingleTickerProviderStateMixin {
+class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
+  bool _fetched = false;
 
   @override
   void initState() {
@@ -21,10 +25,92 @@ class _MaterialsScreenState extends State<MaterialsScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_fetched) {
+      Provider.of<MaterialsService>(context, listen: false).fetchAllMaterials();
+      _fetched = true;
+    }
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Widget _buildMaterialGrid(String category) {
+    return Consumer<MaterialsService>(
+      builder: (context, service, _) {
+        return RefreshIndicator(
+          onRefresh: () => context.read<MaterialsService>().fetchAllMaterials(),
+          child: Builder(
+            builder: (context) {
+              if (service.isLoading) {
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 200),
+                    Center(child: CircularProgressIndicator()),
+                    SizedBox(height: 200),
+                  ],
+                );
+              }
+              if (service.lastError != null) {
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    Center(
+                      child: Text(
+                        service.lastError!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              final materials = (service.materials).where((mat) {
+                final cat = (mat['category'] ?? '').toString().toLowerCase();
+                return cat == category.toLowerCase();
+              }).toList();
+              if (materials.isEmpty) {
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 200),
+                    Center(child: Text('Aucun matériau trouvé.')),
+                    SizedBox(height: 200),
+                  ],
+                );
+              }
+              return GridView.builder(
+                padding: const EdgeInsets.all(16),
+                physics: const AlwaysScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.8,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: materials.length,
+                itemBuilder: (context, index) {
+                  final material = materials[index];
+                  return MaterialCard(
+                    title: material['name'] ?? 'Sans nom',
+                    date: material['date'] ?? '',
+                    image: material['image'] ?? null,
+                    isFavorite: false,
+                    onFavoritePressed: null,
+                  );
+                },
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -130,56 +216,6 @@ class _MaterialsScreenState extends State<MaterialsScreen>
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildMaterialGrid(String category) {
-    final materials = [
-      {
-        'title': 'Coton en toile de lin épaisse bleu',
-        'date': '23/11/2024',
-        'image': 'assets/images/blue_fabric.jpg',
-      },
-      {
-        'title': 'Tissu bord-côte coton tubulaire',
-        'date': '23/11/2024',
-        'image': 'assets/images/green_fabric.jpg',
-      },
-      {
-        'title': 'Tissu sherpa peluche teddy léger',
-        'date': '23/11/2024',
-        'image': 'assets/images/beige_fabric.jpg',
-      },
-      {
-        'title': 'Tissu taffetas doublure, bleu clair coton',
-        'date': '23/11/2024',
-        'image': 'assets/images/light_blue_fabric.jpg',
-      },
-    ];
-
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.8,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: materials.length,
-        itemBuilder: (context, index) {
-          final material = materials[index];
-          return MaterialCard(
-            title: material['title'] as String,
-            date: material['date'] as String,
-            image: material['image'] as String,
-            isFavorite: index == 1 || index == 3, // Some favorites
-            onFavoritePressed: () {
-              debugPrint('Favorite pressed for ${material['title']}');
-            },
-          );
-        },
       ),
     );
   }
