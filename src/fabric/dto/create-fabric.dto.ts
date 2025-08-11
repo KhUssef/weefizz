@@ -6,11 +6,6 @@ export class CreateFabricDto {
   @IsNotEmpty()
   color: string;
 
-  @Transform(({ value }) => parseInt(value))
-  @IsInt()
-  @Min(0)
-  quantity: number;
-
   @IsString()
   @IsNotEmpty()
   type: string; 

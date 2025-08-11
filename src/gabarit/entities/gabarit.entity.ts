@@ -23,6 +23,9 @@ export class Gabarit {
   @Column()
   filePath: string; 
 
+  @Column()
+  iconPath: string;
+
   @ManyToOne(() => User, user => user.gabarits, { onDelete: 'CASCADE', nullable: false })
   user: User;
 

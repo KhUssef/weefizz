@@ -10,7 +10,8 @@ import {
   UploadedFile, 
   UseGuards,
   Req,
-  BadRequestException 
+  BadRequestException,
+  Query
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
@@ -20,6 +21,7 @@ import { GabaritService } from './gabarit.service';
 import { CreateGabaritDto } from './dto/create-gabarit.dto';
 import { UpdateGabaritDto } from './dto/update-gabarit.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { User } from 'src/auth/decorator/user.decorator';
 
 @Controller('gabarit')
 export class GabaritController {
@@ -50,35 +52,44 @@ export class GabaritController {
   async create(
     @Body() createGabaritDto: CreateGabaritDto,
     @UploadedFile() file: Express.Multer.File,
-    @Req() req: Request
+    @Req() req: Request,
+    @User() user: any
   ) {
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
 
-    const user = req.user;
     const gabaritData = {
       ...createGabaritDto,
       filePath: file.path,
-      user
     };
 
-    return this.gabaritService.create(gabaritData);
+    return this.gabaritService.create(gabaritData, user.id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get()
-  findAll() {
-    return this.gabaritService.findAll();
+  findAll(
+    @User() user: any, 
+    @Query("downsized") downsized: boolean=true, 
+    @Query("page") page: number=0, 
+    @Query("limit") limit: number=10
+  ) {
+    const userId = user.id;
+    const start = page * limit; // Convert page to start index
+    return this.gabaritService.findGabaritsByUser(userId, downsized, start, limit);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.gabaritService.findOne(id);
+  findOne(@Param('id') id: string, @User() user: any) {
+    return this.gabaritService.findOne(id, user.id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateGabaritDto: UpdateGabaritDto) {
-    return this.gabaritService.update(id, updateGabaritDto);
+  update(@Param('id') id: string, @Body() updateGabaritDto: UpdateGabaritDto, @User() user: any) {
+    return this.gabaritService.update(id, updateGabaritDto, user.id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -94,7 +105,7 @@ export class GabaritController {
       },
     }),
     fileFilter: (req, file, callback) => {
-      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
         return callback(new BadRequestException('Only image files are allowed!'), false);
       }
       callback(null, true);
@@ -106,16 +117,19 @@ export class GabaritController {
   async updateWithImage(
     @Param('id') id: string,
     @Body() updateGabaritDto: UpdateGabaritDto,
+    @User() user: any,
     @UploadedFile() file?: Express.Multer.File,
     @Req() req?: Request
   ) {
     const newFilePath = file ? file.path : undefined;
-    return this.gabaritService.updateWithFile(id, updateGabaritDto, newFilePath);
+    return this.gabaritService.updateWithFile(id, user.id, updateGabaritDto, newFilePath);
   }
 
+
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.gabaritService.remove(id);
+  remove(@Param('id') id: string, @User() user: any) {
+    return this.gabaritService.softdelete(id, user.id);
   }
   
   @Get('image/:filename')

@@ -10,7 +10,8 @@ import {
   Req, 
   UseInterceptors, 
   UploadedFile, 
-  BadRequestException 
+  BadRequestException, 
+  Query
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
@@ -21,11 +22,12 @@ import { CreateFabricDto } from './dto/create-fabric.dto';
 import { UpdateFabricDto } from './dto/update-fabric.dto';
 import { Fabric } from './entities/fabric.entity'; 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { User } from 'src/auth/decorator/user.decorator';
+import { userInfo } from 'os';
 
 @Controller('fabric')
 export class FabricController {
   constructor(private readonly fabricService: FabricService) {}
-
   @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(FileInterceptor('image', {
@@ -39,7 +41,7 @@ export class FabricController {
       },
     }),
     fileFilter: (req, file, callback) => {
-      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
         return callback(new BadRequestException('Only image files are allowed!'), false);
       }
       callback(null, true);
@@ -53,6 +55,9 @@ export class FabricController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request
   ): Promise<any> {
+    console.log('req.body:', req.body);
+    console.log("Creating fabric with data:", createFabricDto);
+    console.log("Uploaded file:", file);
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -69,22 +74,22 @@ export class FabricController {
 
   @UseGuards(JwtAuthGuard)
   @Get()
-  findAll(@Req() req: Request): Promise<any[]> {
-    const userId = (req.user as any).id;
-    return this.fabricService.findFabricsByUser(userId.toString(), userId);
+  findAll(
+    @Req() req: Request, 
+    @User() user: any, 
+    @Query("downsized") downsized: boolean=true, 
+    @Query("page") page: number=0, 
+    @Query("limit") limit: number=10
+  ): Promise<any[]> {
+    const userId = user.id;
+    const start = page * limit; // Convert page to start index
+    return this.fabricService.findFabricsByUser(userId, downsized, start, limit);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req: Request): Promise<any> {
-    const fabric = await this.fabricService.findOne(id);
-    const userId = (req.user as any).id;
-    
-    // Check ownership
-    if (fabric.user.id !== userId) {
-      throw new BadRequestException('You can only view your own fabrics');
-    }
-    
+  async findOne(@Param('id') id: string, @Req() req: Request, @User() user: any): Promise<any> {
+    const fabric = await this.fabricService.findOne(id, user.id);    
     return fabric;
   }
 
@@ -112,7 +117,7 @@ export class FabricController {
       },
     }),
     fileFilter: (req, file, callback) => {
-      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
         return callback(new BadRequestException('Only image files are allowed!'), false);
       }
       callback(null, true);
@@ -134,8 +139,8 @@ export class FabricController {
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@Param('id') id: string, @Req() req: Request): Promise<void> {
-    const userId = (req.user as any).id;
+  remove(@Param('id') id: string, @Req() req: Request, @User() user: any): Promise<void> {
+    const userId = user.id;
     return this.fabricService.removeWithOwnership(id, userId);
   }
 
@@ -145,13 +150,6 @@ export class FabricController {
     const userId = (req.user as any).id;
     return this.fabricService.findByColorForUser(color, userId);
   }   
-
-  @UseGuards(JwtAuthGuard)
-  @Get('user/:userId')
-  findFabricsByUser(@Param('userId') userId: string, @Req() req: Request): Promise<any[]> {
-    const requestingUserId = (req.user as any).id;
-    return this.fabricService.findFabricsByUser(userId, requestingUserId);
-  }
 
   @Get('image/:filename')
   getImage(@Param('filename') filename: string): any {
@@ -164,5 +162,16 @@ export class FabricController {
     }
     throw new BadRequestException('Image not found');
   }
+
+  @Post('test-upload')
+@UseInterceptors(FileInterceptor('image'))
+async testUpload(@Req() req: Request) {
+  console.log('req.body:', req.body);
+  console.log('req.file:', (req as any).file);
+  return { body: req.body, file: (req as any).file };
+}
+
+
+
 }
 

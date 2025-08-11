@@ -6,133 +6,225 @@ import { Fabric } from './entities/fabric.entity';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { SafeUserDto } from '../user/dto/safe-user.dto';
 import { CreateFabricDto } from './dto/create-fabric.dto';
+import * as sharp from 'sharp';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
-export class FabricService extends BaseService<Fabric> {
+export class FabricService{
   constructor(
     @InjectRepository(Fabric)
     private fabricRepository: Repository<Fabric>,
   ) {
-    super(fabricRepository); 
-  }
-
-  // Helper method to transform fabric data with safe user info
-  private transformFabricWithSafeUser(fabric: Fabric): any {
-    return {
-      ...fabric,
-      user: new SafeUserDto(fabric.user)
-    };
-  }
-
-  // Helper method to transform array of fabrics with safe user info
-  private transformFabricsWithSafeUser(fabrics: Fabric[]): any[] {
-    return fabrics.map(fabric => this.transformFabricWithSafeUser(fabric));
   }
 
   async create(data: Partial<Fabric>): Promise<any> {
     const entity = this.fabricRepository.create(data);
     const savedFabric = await this.fabricRepository.save(entity);
-    return this.findOne(savedFabric.id);
+    // Return the saved fabric directly since we don't have userId context here
+    return savedFabric;
   }
 
-  async createWithUserId(fabricData: CreateFabricDto & { filePath: string }, userId: number): Promise<any> {
-    const entity = this.fabricRepository.create({
-      ...fabricData,
-      user: { id: userId } as any,
-    });
-    const savedFabric = await this.fabricRepository.save(entity);
-    return this.findOne(savedFabric.id);
-  }
+  async   createWithUserId(fabricData: CreateFabricDto & { filePath: string }, userId: number): Promise<any> {
+    // Get file extension and base name from the already unique file path
+    const fileExtension = path.extname(fabricData.filePath);
+    const baseName = path.basename(fabricData.filePath, fileExtension);
+    
+    // Create icon path by adding '-icon' suffix to the existing unique filename
+    const iconFileName = `${baseName}-icon${fileExtension}`;
+    const iconFilePath = `uploads/fabrics/${iconFileName}`;
+    
+    // Full paths for file operations
+    const fullOriginalPath = path.join(process.cwd(), fabricData.filePath);
+    const fullIconPath = path.join(process.cwd(), iconFilePath);
+    
+    try {
+      // Ensure the uploads/fabrics directory exists
+      const uploadsDir = path.join(process.cwd(), 'uploads/fabrics');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      
+      // Create downscaled icon version using sharp from the existing file
+      await sharp(fullOriginalPath)
+        .resize(200, 200, { // Resize to 200x200 pixels
+          fit: 'cover', // Maintain aspect ratio and crop if necessary
+          position: 'center'
+        })
+        .jpeg({ quality: 80 }) // Convert to JPEG with 80% quality
+        .toFile(fullIconPath);
+      
+      // Create the fabric entity with both file paths
+      const entity = this.fabricRepository.create({
+        ...fabricData,
+        iconPath: iconFilePath,
+        user: { id: userId } as any,
+      });
+      
+      const savedFabric = await this.fabricRepository.save(entity);
+      return this.findOne(savedFabric.id, userId);
 
-  async findAll(): Promise<any[]> {
-    const fabrics = await this.fabricRepository.find({ relations: ['user'] });
-    return this.transformFabricsWithSafeUser(fabrics);
-  }
+    } catch (error) {
+      // Clean up icon file if there's an error (keep original file)
+      if (fs.existsSync(fullIconPath)) {
+        fs.unlinkSync(fullIconPath);
+      }
+      throw error;
+    }
+  } 
+  //  async findAll(): Promise<any[]> {
+  //   const fabrics = await this.fabricRepository.find({ relations: ['user'] });
+  //   return this.transformFabricsWithSafeUser(fabrics);
+  // }
 
-  private async findOneRaw(id: string): Promise<Fabric> {
+  async findOne(id: string, userId: number): Promise<any> {
     const fabric = await this.fabricRepository.findOne({ 
-      where: { id }, 
-      relations: ['user'] 
+      where: { id, user: { id: userId } }, 
     });
     if (!fabric) {
-      throw new NotFoundException(`Fabric with id ${id} not found`);
+      throw new NotFoundException(`Fabric with id ${id} not found or you don't have access to it`);
     }
     return fabric;
   }
 
-  async findOne(id: string): Promise<any> {
-    const fabric = await this.findOneRaw(id);
-    return this.transformFabricWithSafeUser(fabric);
+  async updateWithOwnership(id: string, updateData: Partial<Fabric>, userId: number, newFilePath?: string): Promise<any> {
+
+    if(updateData.user) {
+      if(updateData.user.id!== userId)
+        throw new ForbiddenException('You cannot change the user of a fabric');
+    }
+    const existingFabric = await this.fabricRepository.findOne({ 
+      where: { id, user: { id: userId } },
+    });
+    
+    if (!existingFabric) {
+      throw new NotFoundException(`Fabric with id ${id} not found or you don't have access to it`);
+    }
+    
+    // If new file is provided, process it and delete old files
+    if (newFilePath && existingFabric.filePath) {
+      // Get file extension and base name from the new file (already has unique name from controller)
+      const fileExtension = path.extname(newFilePath);
+      const baseName = path.basename(newFilePath, fileExtension);
+      
+      // Create icon path by adding '-icon' suffix to the existing unique filename
+      const iconFileName = `${baseName}-icon${fileExtension}`;
+      const iconFilePath = `uploads/fabrics/${iconFileName}`;
+      
+      // Full paths for file operations
+      const fullNewPath = path.join(process.cwd(), newFilePath);
+      const fullIconPath = path.join(process.cwd(), iconFilePath);
+      
+      try {
+        // Create downscaled icon version using sharp from the new file
+        await sharp(fullNewPath)
+          .resize(200, 200, {
+            fit: 'cover',
+            position: 'center'
+          })
+          .jpeg({ quality: 80 })
+          .toFile(fullIconPath);
+        
+        // Delete old files
+        const oldFilePath = path.join(process.cwd(), existingFabric.filePath);
+        const oldIconPath = path.join(process.cwd(), existingFabric.iconPath);
+        
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
+        }
+        if (fs.existsSync(oldIconPath)) {
+          fs.unlinkSync(oldIconPath);
+        }
+        
+        // Update both file paths
+        updateData.filePath = newFilePath;
+        updateData.iconPath = iconFilePath;
+        
+      } catch (error) {
+        // Clean up icon file if there's an error (keep new original file)
+        if (fs.existsSync(fullIconPath)) {
+          fs.unlinkSync(fullIconPath);
+        }
+        throw error;
+      }
+    }
+    
+    await this.fabricRepository.update(id, updateData);
+    return this.findOne(id, userId); 
   }
 
-  async updateWithOwnership(id: string, updateData: Partial<Fabric>, userId: number, newFilePath?: string): Promise<any> {
-    const existingFabric = await this.findOneRaw(id);
-    
-    if (existingFabric.user.id !== userId) {
-      throw new ForbiddenException('You can only update your own fabrics');
+  async delete(id:string, userid: number){
+    const fabric = await this.fabricRepository.findOne({
+      where: { id, user: { id: userid } },
+    })
+    if(!fabric) {
+      throw new NotFoundException(`Fabric with id ${id} not found or you don't have access to it`);
     }
-    
-    // If new file is provided, delete the old file
-    if (newFilePath && existingFabric.filePath) {
-      const fs = require('fs');
-      const path = require('path');
-      const oldFilePath = path.join(process.cwd(), existingFabric.filePath);
-      
-      // Delete old file if it exists
-      if (fs.existsSync(oldFilePath)) {
-        fs.unlinkSync(oldFilePath);
-      }
-      
-      updateData.filePath = newFilePath;
-    }
-    
-    await this.update(id, updateData);
-    return this.findOne(id); 
+    this.fabricRepository.softDelete(id); // Soft delete the fabric
   }
 
   // Override remove method with ownership check and file cleanup
   async removeWithOwnership(id: string, userId: number): Promise<void> {
-    const fabric = await this.findOneRaw(id);
+    const fabric = await this.fabricRepository.findOne({ 
+      where: { id, user: { id: userId } },
+      relations: ['user']
+    });
     
-    // Check ownership
-    if (fabric.user.id !== userId) {
-      throw new ForbiddenException('You can only delete your own fabrics');
+    if (!fabric) {
+      throw new NotFoundException(`Fabric with id ${id} not found or you don't have access to it`);
     }
     
-    // Delete the associated file
+    // Delete the associated files (both original and icon)
+    // DONT USE 
+    // NOT SOFT DELETE NOT WORTH IT  
     if (fabric.filePath) {
-      const fs = require('fs');
-      const path = require('path');
       const filePath = path.join(process.cwd(), fabric.filePath);
-      
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
     
-    // Call parent remove method
-    return super.remove(id);
+    if (fabric.iconPath) {
+      const iconPath = path.join(process.cwd(), fabric.iconPath);
+      if (fs.existsSync(iconPath)) {
+        fs.unlinkSync(iconPath);
+      }
+    }
+    
+    // Delete the fabric from database
+    await this.fabricRepository.delete(id);
   }
 
   // Find fabrics by color (only user's own fabrics)
   async findByColorForUser(color: string, userId: number): Promise<any[]> {
     const fabrics = await this.fabricRepository.find({ 
       where: { color, user: { id: userId } },
-      relations: ['user']
     });
-    return this.transformFabricsWithSafeUser(fabrics);
+    return fabrics;
   }
 
-  // Find fabrics for a specific user (only if it's the same user)
-  async findFabricsByUser(userId: string, requestingUserId: number): Promise<any[]> {
-    if (Number(userId) !== requestingUserId) {
-      throw new ForbiddenException('You can only view your own fabrics');
-    }
-    
-    const fabrics = await this.fabricRepository.find({
-      where: { user: { id: Number(userId) } },
-      relations: ['user'], 
-    });
-    return this.transformFabricsWithSafeUser(fabrics);
-  }
+ async findFabricsByUser(
+  userId: number,
+  downsized = true,
+  start: number=0,
+  limit: number=10
+): Promise<any[]> {
+  const fabrics = await this.fabricRepository.find({
+    where: { user: { id: Number(userId) } },
+    skip: start,
+    take: limit,
+  });
+
+  return fabrics.map(fabric => ({
+    id: fabric.id,
+    type: fabric.type,
+    color: fabric.color,
+    path: downsized ? fabric.iconPath : fabric.filePath,
+    favorited: fabric.favorited,
+    createdAt: fabric.createdAt,
+    updatedAt: fabric.updatedAt,
+  }));
+}
+
+
 }

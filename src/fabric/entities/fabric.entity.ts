@@ -21,11 +21,11 @@ export class Fabric {
   @Column()
   color: string;
 
-  @Column('int')
-  quantity: number;
-
   @Column()
   filePath: string;
+
+  @Column()
+  iconPath: string;
 
   @ManyToOne(() => User, user => user.fabrics, { onDelete: 'CASCADE' })
   user: User;
