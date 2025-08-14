@@ -14,4 +14,12 @@ export class CreateFabricDto {
   @IsOptional()
   @IsString()
   filePath?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
 }

@@ -29,6 +29,10 @@ export class FabricService{
     // Get file extension and base name from the already unique file path
     const fileExtension = path.extname(fabricData.filePath);
     const baseName = path.basename(fabricData.filePath, fileExtension);
+
+    if(fabricData.title==null){
+      fabricData.title = fabricData.type
+    }
     
     // Create icon path by adding '-icon' suffix to the existing unique filename
     const iconFileName = `${baseName}-icon${fileExtension}`;
@@ -90,9 +94,13 @@ export class FabricService{
     const iconFilename = fabric.iconPath ? path.basename(fabric.iconPath) : null;
     
     return {
-      ...fabric,
-      originalImageUrl: originalFilename ? `/fabric/image/${originalFilename}` : null,
-      iconImageUrl: iconFilename ? `/fabric/image/${iconFilename}` : null,
+      id: fabric.id,
+      title: fabric.title,
+      description: fabric.description,
+      color: fabric.color,
+      createdAt: fabric.createdAt,
+      type: fabric.type,
+      originalImageUrl: originalFilename ? `/uploads/fabrics/${originalFilename}` : null,
     };
   }
 
@@ -150,7 +158,6 @@ export class FabricService{
         updateData.iconPath = iconFilePath;
         
       } catch (error) {
-        // Clean up icon file if there's an error (keep new original file)
         if (fs.existsSync(fullIconPath)) {
           fs.unlinkSync(fullIconPath);
         }
@@ -212,14 +219,15 @@ export class FabricService{
     return fabrics;
   }
 
- async findFabricsByUser(
+async findFabricsByUser(
   userId: number,
   downsized = true,
-  start: number=0,
-  limit: number=10
+  start = 0,
+  limit = 10,
 ): Promise<any[]> {
   const fabrics = await this.fabricRepository.find({
     where: { user: { id: Number(userId) } },
+    order: { favorited: 'DESC', createdAt: 'DESC' },
     skip: start,
     take: limit,
   });
@@ -227,18 +235,16 @@ export class FabricService{
   return fabrics.map(fabric => {
     const imagePath = downsized ? fabric.iconPath : fabric.filePath;
     const filename = imagePath ? path.basename(imagePath) : null;
-    
+
     return {
       id: fabric.id,
       type: fabric.type,
       color: fabric.color,
-      imageUrl: filename ? `/fabric/image/${filename}` : null,
+      imageUrl: filename ? `/uploads/fabrics/${filename}` : null, 
       favorited: fabric.favorited,
       createdAt: fabric.createdAt,
-      updatedAt: fabric.updatedAt,
+      title: fabric.title
     };
   });
 }
-
-
 }

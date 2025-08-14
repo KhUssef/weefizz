@@ -24,10 +24,13 @@ import { Fabric } from './entities/fabric.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { User } from 'src/auth/decorator/user.decorator';
 import { userInfo } from 'os';
-
+import { ParseBoolPipe, ParseIntPipe } from '@nestjs/common';
 @Controller('fabric')
 export class FabricController {
+  private idk = 0;
+
   constructor(private readonly fabricService: FabricService) {}
+
   @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(FileInterceptor('image', {
@@ -77,10 +80,11 @@ export class FabricController {
   findAll(
     @Req() req: Request, 
     @User() user: any, 
-    @Query("downsized") downsized: boolean=true, 
+    @Query('downsized', new ParseBoolPipe({ optional: true })) downsized = true,
     @Query("page") page: number=0, 
     @Query("limit") limit: number=10
   ): Promise<any[]> {
+    console.log(this.idk++, { downsized, page, limit });
     const userId = user.id;
     const start = page * limit; // Convert page to start index
     return this.fabricService.findFabricsByUser(userId, downsized, start, limit);

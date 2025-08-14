@@ -19,6 +19,12 @@ export class Fabric {
   type: string;
 
   @Column()
+  title: string;
+
+  @Column({nullable: true})
+  description: string;
+
+  @Column()
   color: string;
 
   @Column()

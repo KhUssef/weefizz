@@ -21,6 +21,9 @@ export class Gabarit {
   name: string;
 
   @Column()
+  description: String;
+
+  @Column()
   filePath: string; 
 
   @Column()
