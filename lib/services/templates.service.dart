@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter/painting.dart';
 import 'package:logger/logger.dart';
 import 'api_client.dart';
 
@@ -10,12 +12,18 @@ class TemplatesService extends ChangeNotifier {
   List<Map<String, dynamic>> _templates = [];
   Map<String, dynamic>? _currentTemplate;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  int _currentPage = 1;
+  bool _hasMore = true;
   String? lastError;
 
   // Getters
   List<Map<String, dynamic>> get templates => _templates;
   Map<String, dynamic>? get currentTemplate => _currentTemplate;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
+  bool get hasMore => _hasMore;
+  int get currentPage => _currentPage;
 
   void _setLoading(bool value) {
     _isLoading = value;
@@ -27,26 +35,31 @@ class TemplatesService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Fetch all templates
-  Future<bool> fetchAllTemplates() async {
-    _setLoading(true);
-    _setError(null);
-
+  // Internal: fetch specific page
+  Future<bool> _fetchTemplatesPage(int page) async {
     try {
-      final response = await ApiClient.dio.get('/templates');
+      final response = await ApiClient.dio.get('/templates', queryParameters: {
+        'page': page,
+      });
 
       if (response.statusCode == 200) {
-        _templates = List<Map<String, dynamic>>.from(response.data);
-        _setLoading(false);
-        debugPrint('Fetched ${_templates.length} templates');
+        final list = List<Map<String, dynamic>>.from(response.data);
+        if (page == 1) {
+          _templates = list;
+        } else {
+          _templates.addAll(list);
+        }
+        _currentPage = page;
+        _hasMore = list.isNotEmpty;
+        debugPrint('Fetched templates page $page; total: ${_templates.length}');
         return true;
       } else {
         _setError('Failed to fetch templates: ${response.statusCode}');
-        _setLoading(false);
         return false;
       }
     } on DioException catch (e) {
-      _setLoading(false);
+      if (_isLoading) _setLoading(false);
+      _isLoadingMore = false; notifyListeners();
 
       if (e.response?.statusCode == 401) {
         _setError('Non autorisé - veuillez vous reconnecter');
@@ -58,14 +71,46 @@ class TemplatesService extends ChangeNotifier {
         _setError('Erreur: ${e.response?.statusCode ?? 'réseau'}');
       }
 
-      _logger.e('Fetch templates error', error: e);
+      _logger.e('Fetch templates page error', error: e);
       return false;
     } catch (e) {
-      _setLoading(false);
+      if (_isLoading) _setLoading(false);
+      _isLoadingMore = false; notifyListeners();
       _setError('Erreur de réseau');
       _logger.e('Unexpected fetch templates error', error: e);
       return false;
     }
+  }
+
+  // Public: first page (refresh)
+  Future<bool> fetchAllTemplates() async {
+    _setError(null);
+    _hasMore = true;
+    _currentPage = 0;
+  // Drop current list immediately
+  clearTemplates();
+    // Clear caches to ensure fresh images
+    try {
+      await DefaultCacheManager().emptyCache();
+    } catch (_) {}
+    try {
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    } catch (_) {}
+    _setLoading(true);
+    final ok = await _fetchTemplatesPage(1);
+    _setLoading(false);
+    return ok;
+  }
+
+  // Public: load next page
+  Future<bool> loadMoreTemplates() async {
+    if (_isLoadingMore || _isLoading || !_hasMore) return false;
+    _isLoadingMore = true; notifyListeners();
+    final next = _currentPage + 1;
+    final ok = await _fetchTemplatesPage(next);
+    _isLoadingMore = false; notifyListeners();
+    return ok;
   }
 
   // Fetch a single template by ID

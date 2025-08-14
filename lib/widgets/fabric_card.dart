@@ -1,25 +1,48 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 
-class MaterialCard extends StatelessWidget {
+class FabricCard extends StatelessWidget {
   final String title;
-  final String? subtitle;
-  final String? date;
+  final String? date; // ISO 8601 or already formatted
   final String? image;
   final bool isFavorite;
   final VoidCallback? onFavoritePressed;
 
-  const MaterialCard({
+  const FabricCard({
     super.key,
     required this.title,
-    this.subtitle,
     this.date,
     this.image,
     this.isFavorite = false,
     this.onFavoritePressed,
   });
 
+  ImageProvider? _buildImageProvider(String path) {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return NetworkImage(path);
+    }
+    if (path.startsWith('/')) {
+      return FileImage(File(path));
+    }
+    return AssetImage(path);
+  }
+
   @override
   Widget build(BuildContext context) {
+    String? formattedDate;
+    if (date != null && date!.isNotEmpty) {
+      try {
+        final dt = DateTime.tryParse(date!);
+        if (dt != null) {
+          final d = dt.toLocal();
+          formattedDate = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+        } else {
+          formattedDate = date; // fallback
+        }
+      } catch (_) {
+        formattedDate = date;
+      }
+    }
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -35,7 +58,6 @@ class MaterialCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image section with favorite button
           Stack(
             children: [
               Container(
@@ -48,8 +70,8 @@ class MaterialCard extends StatelessWidget {
                 child: image != null
                     ? ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                        child: Image.asset(
-                          image!,
+                        child: Image(
+                          image: _buildImageProvider(image!)!,
                           fit: BoxFit.cover,
                         ),
                       )
@@ -59,7 +81,6 @@ class MaterialCard extends StatelessWidget {
                         color: Colors.grey[400],
                       ),
               ),
-              // Favorite button
               Positioned(
                 top: 8,
                 right: 8,
@@ -89,7 +110,6 @@ class MaterialCard extends StatelessWidget {
               ),
             ],
           ),
-          // Content section
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -105,10 +125,10 @@ class MaterialCard extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (date != null) ...[
+        if (formattedDate != null) ...[
                   const SizedBox(height: 4),
                   Text(
-                    date!,
+                    formattedDate,
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[500],

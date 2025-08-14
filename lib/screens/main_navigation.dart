@@ -1,26 +1,28 @@
 import 'package:flutter/material.dart';
 import 'home.dart';
-import 'materials.dart';
+import 'fabrics.dart';
 import 'templates.dart';
 import 'profile.dart';
 import 'new_project_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
+  // Use a private key internally to avoid exposing a private type in a public API
+  static final GlobalKey<_MainNavigationScreenState> _navKey = GlobalKey<_MainNavigationScreenState>();
+  // Factory to create the shell with the internal key
+  factory MainNavigationScreen.shell() => MainNavigationScreen(key: _navKey);
+  static void selectTab(int index) {
+    _navKey.currentState?.setIndex(index);
+  }
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const TemplatesScreen(),
-    const MaterialsScreen(),
-    const ProfileScreen(),
-  ];
+  late final List<Widget> _screens;
 
   final List<BottomNavigationBarItem> _bottomNavItems = const [
     BottomNavigationBarItem(
@@ -36,7 +38,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     BottomNavigationBarItem(
       icon: Icon(Icons.category_outlined),
       activeIcon: Icon(Icons.category),
-      label: 'Matières',
+  label: 'Tissus',
     ),
     BottomNavigationBarItem(
       icon: Icon(Icons.person_outline),
@@ -46,6 +48,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   ];
 
   void _onTabTapped(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  // Keep cached data when switching tabs; no auto-refetch here
+  }
+
+  void setIndex(int index) {
+    if (!mounted) return;
     setState(() {
       _currentIndex = index;
     });
@@ -63,16 +73,42 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       // Handle add button press based on current screen
       switch (_currentIndex) {
         case 1: // Templates
-          print('Add new template');
+          debugPrint('Add new template');
           break;
-        case 2: // Materials
-          print('Add new material');
+        case 2: // Fabrics
+          debugPrint('Add new fabric');
           break;
         case 3: // Profile
-          print('Add new item from profile');
+          debugPrint('Add new item from profile');
           break;
       }
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _screens = [
+      HomeScreen(onSelectTab: (i) => setState(() => _currentIndex = i)),
+      const TemplatesScreen(),
+      const FabricsScreen(),
+      const ProfileScreen(),
+    ];
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (!mounted) return;
+    // When app window is reopened/resumed, refetch everything
+  // Keep cached data on resume; no auto-refetch here
   }
 
   @override
@@ -89,7 +125,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 10,
               offset: const Offset(0, -2),
             ),
@@ -116,7 +152,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: theme.primaryColor.withOpacity(0.3),
+              color: theme.primaryColor.withValues(alpha: 0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),

@@ -12,23 +12,23 @@ class NewProjectScreen extends StatefulWidget {
 }
 
 
-class MaterialItem {
+class FabricItem {
   final String name;
   final String imagePath;
-  MaterialItem({required this.name, required this.imagePath});
+  FabricItem({required this.name, required this.imagePath});
 }
 
 class _NewProjectScreenState extends State<NewProjectScreen> {
-  Future<String?> _promptForMaterialName(BuildContext context) async {
+  Future<String?> _promptForFabricName(BuildContext context) async {
     final controller = TextEditingController();
     return await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Nom de la matière'),
+  title: const Text('Nom du tissu'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: 'Entrer le nom de la matière'),
+          decoration: const InputDecoration(hintText: 'Entrer le nom du tissu'),
         ),
         actions: [
           TextButton(
@@ -45,7 +45,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   }
   final TextEditingController _identificationController = TextEditingController();
   final TextEditingController _templateController = TextEditingController();
-  final List<MaterialItem> _materials = [];
+  final List<FabricItem> _fabrics = [];
 
   @override
   void dispose() {
@@ -63,13 +63,13 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => CameraScreen(
-              captureType: type, // 'material' or 'template'
+              captureType: type, // 'fabric' or 'template'
               onImageCaptured: (imagePath) async {
-                if (type == 'material') {
-                  final name = await _promptForMaterialName(context);
+                if (type == 'fabric') {
+                  final name = await _promptForFabricName(context);
                   if (name != null && name.trim().isNotEmpty) {
                     setState(() {
-                      _materials.add(MaterialItem(name: name.trim(), imagePath: imagePath));
+                      _fabrics.add(FabricItem(name: name.trim(), imagePath: imagePath));
                     });
                   }
                 } else {
@@ -102,11 +102,11 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         imageQuality: 85,
       );
       if (image != null && mounted) {
-        if (type == 'material') {
-          final name = await _promptForMaterialName(context);
+        if (type == 'fabric') {
+          final name = await _promptForFabricName(context);
           if (name != null && name.trim().isNotEmpty) {
             setState(() {
-              _materials.add(MaterialItem(name: name.trim(), imagePath: image.path));
+              _fabrics.add(FabricItem(name: name.trim(), imagePath: image.path));
             });
           }
         } else {
@@ -202,7 +202,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Scannez vos tissus et obtenez des\ninformations détaillées automatiquement\npour une meilleure gestion des matériaux',
+                    'Scannez vos tissus et obtenez des\ninformations détaillées automatiquement\npour une meilleure gestion des tissus',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 14,
@@ -251,7 +251,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'Ajouter manuellement une matière',
+                    'Ajouter manuellement un tissu',
                     style: TextStyle(
                       color: Colors.black87,
                       fontSize: 16,
@@ -326,12 +326,12 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   }
 
 
-  Widget _buildMaterialList() {
+  Widget _buildFabricList() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Matières',
+          'Tissus',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w500,
@@ -339,7 +339,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        ..._materials.map((mat) => Card(
+  ..._fabrics.map((mat) => Card(
               margin: const EdgeInsets.symmetric(vertical: 4),
               child: ListTile(
                 leading: Image.file(
@@ -353,7 +353,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                   icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: () {
                     setState(() {
-                      _materials.remove(mat);
+                      _fabrics.remove(mat);
                     });
                   },
                 ),
@@ -364,11 +364,11 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () => _showImageSourceDialog(
-              type: 'material',
-              title: 'Identification et Préparation\ndes Matières',
+              type: 'fabric',
+              title: 'Identification et Préparation\ndes Tissus',
             ),
             icon: const Icon(Icons.add),
-            label: const Text('Ajouter une matière'),
+            label: const Text('Ajouter un tissu'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4A6CF7),
               foregroundColor: Colors.white,
@@ -469,8 +469,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                       
                       const SizedBox(height: 24),
                       
-                      // Material list
-                      _buildMaterialList(),
+                      // Fabric list
+                      _buildFabricList(),
                       
                       const SizedBox(height: 24),
                       
@@ -520,8 +520,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                     // Handle form validation and submission
                     debugPrint('Project created:');
                     debugPrint('- Identification: ${_identificationController.text}');
-                    debugPrint('- Materials:');
-                    for (final mat in _materials) {
+                    debugPrint('- Fabrics:');
+                    for (final mat in _fabrics) {
                       debugPrint('  - ${mat.name} (${mat.imagePath})');
                     }
                     debugPrint('- Template: ${_templateController.text}');

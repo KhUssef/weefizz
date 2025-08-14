@@ -1,24 +1,46 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import '../widgets/section_header.dart';
-import '../widgets/material_card.dart';
 import '../widgets/template_card.dart';
 import 'package:provider/provider.dart';
-import '../services/materials.service.dart';
+import '../services/fabrics.service.dart';
 import '../services/templates.service.dart';
+import './main_navigation.dart';
+import '../widgets/featured_fabrics_strip.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  final ValueChanged<int>? onSelectTab;
+  const HomeScreen({super.key, this.onSelectTab});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
+  bool _first = true;
 
   Future<void> _refreshAll(BuildContext context) async {
     await Future.wait([
-      context.read<MaterialsService>().fetchAllMaterials(),
+      context.read<FabricsService>().fetchHomeFullFabrics(limit: 5),
       context.read<TemplatesService>().fetchAllTemplates(),
     ]);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_first) {
+      // Initial fetch on first mount: Home-only data
+      _first = false;
+      _refreshAll(context);
+    }
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     
     return Scaffold(
@@ -47,54 +69,37 @@ class HomeScreen extends StatelessWidget {
                 
                 const SizedBox(height: 20),
                 
-                // Materials section
+                // Featured fabrics strip
                 SectionHeader(
-                  title: 'Matières',
-                  onSeeAllPressed: () {
-                    debugPrint('See all materials pressed');
-                  }, onViewAll: () {  },
+                  title: 'Matieres',
+                  onViewAll: () {
+                    // Emulate tapping the Fabrics tab (index 2)
+                    if (widget.onSelectTab != null) {
+                      widget.onSelectTab!(2);
+                    } else {
+                      // Fallback to global nav if available
+                      MainNavigationScreen.selectTab(2);
+                    }
+                  },
                 ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 200,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      SizedBox(
-                        width: 160,
-                        child: MaterialCard(
-                          title: 'Tissu en toile de lin épaisse bleu',
-                          date: '23/11/2024',
-                          image: 'assets/images/blue_fabric.jpg',
-                          isFavorite: true,
-                          onFavoritePressed: () {
-                            debugPrint('Favorite pressed');
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 160,
-                        child: MaterialCard(
-                          title: 'Coton biologique',
-                          date: '23/11/2024',
-                          onFavoritePressed: () {
-                            debugPrint('Favorite pressed');
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 8),
+                const FeaturedFabricsStrip(),
+                const SizedBox(height: 8),
                 
                 const SizedBox(height: 32),
                 
                 // Templates section
                 SectionHeader(
                   title: 'Gabarits',
-                  onSeeAllPressed: () {
-                    debugPrint('See all templates pressed');
-                  }, onViewAll: () {  },
+                  onViewAll: () {
+                    // Emulate tapping the Templates tab (index 1)
+                    if (widget.onSelectTab != null) {
+                      widget.onSelectTab!(1);
+                    } else {
+                      // Fallback to global nav if available
+                      MainNavigationScreen.selectTab(1);
+                    }
+                  },
                 ),
                 const SizedBox(height: 16),
                 Column(

@@ -1,50 +1,58 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
-import '../widgets/material_card.dart';
+import '../widgets/fabric_card.dart';
 import 'package:provider/provider.dart';
-import '../services/materials.service.dart';
-import 'package:provider/provider.dart';
-import '../services/materials.service.dart';
+import '../services/fabrics.service.dart';
+import '../widgets/fabric_editor_sheet.dart';
 
-class MaterialsScreen extends StatefulWidget {
-  const MaterialsScreen({Key? key}) : super(key: key);
+class FabricsScreen extends StatefulWidget {
+  const FabricsScreen({super.key});
 
   @override
-  State<MaterialsScreen> createState() => _MaterialsScreenState();
+  State<FabricsScreen> createState() => _FabricsScreenState();
 }
 
-class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _FabricsScreenState extends State<FabricsScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   bool _fetched = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+  _scrollController.addListener(_onScroll);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_fetched) {
-      Provider.of<MaterialsService>(context, listen: false).fetchAllMaterials();
+      Provider.of<FabricsService>(context, listen: false).fetchAllFabrics();
       _fetched = true;
     }
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  Widget _buildMaterialGrid(String category) {
-    return Consumer<MaterialsService>(
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    final offset = _scrollController.offset;
+    if (offset >= max - 200) {
+      // near bottom, try to load more
+      context.read<FabricsService>().loadMoreFabrics();
+    }
+  }
+
+  Widget _buildFabricGrid() {
+    return Consumer<FabricsService>(
       builder: (context, service, _) {
         return RefreshIndicator(
-          onRefresh: () => context.read<MaterialsService>().fetchAllMaterials(),
+          onRefresh: () => context.read<FabricsService>().fetchAllFabrics(),
           child: Builder(
             builder: (context) {
               if (service.isLoading) {
@@ -71,22 +79,20 @@ class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProv
                   ],
                 );
               }
-              final materials = (service.materials).where((mat) {
-                final cat = (mat['category'] ?? '').toString().toLowerCase();
-                return cat == category.toLowerCase();
-              }).toList();
-              if (materials.isEmpty) {
+              final fabrics = service.fabrics;
+              if (fabrics.isEmpty) {
                 return ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
                     SizedBox(height: 200),
-                    Center(child: Text('Aucun matériau trouvé.')),
+                    Center(child: Text('Aucun tissu trouvé.')),
                     SizedBox(height: 200),
                   ],
                 );
               }
               return GridView.builder(
                 padding: const EdgeInsets.all(16),
+                controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
@@ -94,15 +100,48 @@ class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProv
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),
-                itemCount: materials.length,
+                itemCount: fabrics.length + (service.isLoadingMore ? 2 : 0),
                 itemBuilder: (context, index) {
-                  final material = materials[index];
-                  return MaterialCard(
-                    title: material['name'] ?? 'Sans nom',
-                    date: material['date'] ?? '',
-                    image: material['image'] ?? null,
-                    isFavorite: false,
-                    onFavoritePressed: null,
+                  if (index >= fabrics.length) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final fabric = fabrics[index];
+                  final img = (fabric['cachedImagePath'] ?? fabric['absoluteImageUrl'] ?? fabric['image']) as String?;
+                  final title = (fabric['title'] ?? fabric['name']  ?? fabric['color'] ?? 'Sans nom') as String;
+                  final date = (fabric['date'] ?? fabric['createdAt'] ?? '') as String;
+                  final favored = (fabric['favorited'] ?? false) as bool;
+                  final id = fabric['id'] as String?;
+                  return GestureDetector(
+                    onTap: () async {
+                      final id = fabric['id'] as String?;
+                      final svc = context.read<FabricsService>();
+                      if (id != null) {
+                        await svc.fetchFabricById(id);
+                        if (!mounted) return;
+                        final current = svc.currentFabric ?? fabric;
+                        debugPrint('Fetched fabric: ${current['name'] ?? id}');
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          showFabricEditorSheet(this.context, current);
+                        });
+                      } else {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          showFabricEditorSheet(this.context, fabric);
+                        });
+                      }
+                    },
+                    child: FabricCard(
+                    title: title,
+                    date: date,
+                    image: img,
+                    isFavorite: favored,
+                      onFavoritePressed: id == null
+                          ? null
+                          : () {
+                              context.read<FabricsService>().toggleFavorite(id, !favored);
+                            },
+                    ),
                   );
                 },
               );
@@ -112,6 +151,9 @@ class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProv
       },
     );
   }
+
+  // Bottom sheet now provided by shared widget helper (fabric_editor_sheet.dart)
+
 
   @override
   Widget build(BuildContext context) {
@@ -174,49 +216,13 @@ class _MaterialsScreenState extends State<MaterialsScreen> with SingleTickerProv
                 ],
               ),
             ),
-            // Tab bar
-            Container(
-              color: Colors.white,
-              child: TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                labelColor: Colors.blue,
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: Colors.blue,
-                indicatorWeight: 2,
-                labelStyle: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.w400,
-                  fontSize: 16,
-                ),
-                tabs: const [
-                  Tab(text: 'Coton'),
-                  Tab(text: 'Feutrine'),
-                  Tab(text: 'Recyclé'),
-                  Tab(text: 'Polyester'),
-                  Tab(text: 'Velours'),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildMaterialGrid('Coton'),
-                  _buildMaterialGrid('Feutrine'),
-                  _buildMaterialGrid('Recyclé'),
-                  _buildMaterialGrid('Polyester'),
-                  _buildMaterialGrid('Velours'),
-                ],
-              ),
-            ),
+            // Content: single infinite grid
+            Expanded(child: _buildFabricGrid()),
           ],
         ),
       ),
     );
   }
 }
+
+// Removed local labeled field; provided by shared editor widget

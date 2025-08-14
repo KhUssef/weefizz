@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/auth.service.dart';
-import 'services/materials.service.dart';
+import 'services/fabrics.service.dart';
 import 'services/templates.service.dart';
 import 'services/api_client.dart';
 import 'widgets/auth_wrapper.dart';
@@ -19,7 +19,7 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
-        ChangeNotifierProvider(create: (_) => MaterialsService()),
+  ChangeNotifierProvider(create: (_) => FabricsService()),
         ChangeNotifierProvider(create: (_) => TemplatesService()),
       ],
       child: MaterialApp(

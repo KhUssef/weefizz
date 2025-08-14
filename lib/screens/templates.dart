@@ -11,22 +11,40 @@ class TemplatesScreen extends StatefulWidget {
   State<TemplatesScreen> createState() => _TemplatesScreenState();
 }
 
-class _TemplatesScreenState extends State<TemplatesScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _TemplatesScreenState extends State<TemplatesScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  bool _fetched = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_fetched) {
+      context.read<TemplatesService>().fetchAllTemplates();
+      _fetched = true;
+    }
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    final offset = _scrollController.offset;
+    if (offset >= max - 200) {
+      context.read<TemplatesService>().loadMoreTemplates();
+    }
   }
 
   @override
@@ -90,104 +108,78 @@ class _TemplatesScreenState extends State<TemplatesScreen>
                 ],
               ),
             ),
-            // Tab bar
-            Container(
-              color: Colors.white,
-              child: TabBar(
-                controller: _tabController,
-                isScrollable: true,
-                labelColor: Colors.blue,
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: Colors.blue,
-                indicatorWeight: 2,
-                labelStyle: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.w400,
-                  fontSize: 16,
-                ),
-                tabs: const [
-                  Tab(text: 'Veste'),
-                  Tab(text: 'Pantalon'),
-                  Tab(text: 'Chaussure'),
-                  Tab(text: 'Robe'),
-                  Tab(text: 'Chemise'),
-                ],
-              ),
-            ),
-            // Content
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildTemplateList(context, 'Veste'),
-                  _buildTemplateList(context, 'Pantalon'),
-                  _buildTemplateList(context, 'Chaussure'),
-                  _buildTemplateList(context, 'Robe'),
-                  _buildTemplateList(context, 'Chemise'),
-                ],
-              ),
-            ),
+            // Content: single infinite list
+            Expanded(child: _buildTemplateList(context)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTemplateList(BuildContext context, String category) {
-    // For now the UI still uses static data; we only add pull-to-refresh hook to service
-    final templates = [
-      {
-        'title': 'Veste complet moderne',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket1.jpg',
-      },
-      {
-        'title': 'Veste blazeur',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket2.jpg',
-      },
-      {
-        'title': 'Veste softshell Race',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket3.jpg',
-      },
-      {
-        'title': 'Veste homme Norman',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket4.jpg',
-      },
-      {
-        'title': 'Veste coupe-vent Flat Track',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket5.jpg',
-      },
-      {
-        'title': 'Veste Softshell zippée',
-        'date': '23/11/2024',
-        'image': 'assets/images/jacket6.jpg',
-      },
-    ];
-
-    return RefreshIndicator(
-      onRefresh: () => context.read<TemplatesService>().fetchAllTemplates(),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: ListView.builder(
-          physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: templates.length,
-          itemBuilder: (context, index) {
-            final template = templates[index];
-            return TemplateCard(
-              title: template['title'] as String,
-              date: template['date'] as String,
-              image: template['image'] as String,
+  Widget _buildTemplateList(BuildContext context) {
+    return Consumer<TemplatesService>(
+      builder: (context, service, _) {
+        return RefreshIndicator(
+          onRefresh: () => context.read<TemplatesService>().fetchAllTemplates(),
+          child: Builder(builder: (context) {
+            if (service.isLoading) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 200),
+                  Center(child: CircularProgressIndicator()),
+                  SizedBox(height: 200),
+                ],
+              );
+            }
+            if (service.lastError != null) {
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  Center(
+                    child: Text(
+                      service.lastError!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ],
+              );
+            }
+            final templates = service.templates;
+            if (templates.isEmpty) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 200),
+                  Center(child: Text('Aucun gabarit trouvé.')),
+                  SizedBox(height: 200),
+                ],
+              );
+            }
+            return ListView.builder(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: templates.length + (service.isLoadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= templates.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final template = templates[index];
+                return TemplateCard(
+                  title: (template['title'] ?? template['name'] ?? 'Sans nom') as String,
+                  date: (template['date'] ?? template['createdAt'] ?? '') as String,
+                  image: (template['image'] ?? template['imageUrl'] ?? '') as String,
+                );
+              },
             );
-          },
-        ),
-      ),
+          }),
+        );
+      },
     );
   }
 }

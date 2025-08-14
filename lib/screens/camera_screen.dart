@@ -163,7 +163,7 @@ class _CameraScreenState extends State<CameraScreen> {
                     // Title
                     const Expanded(
                       child: Text(
-                        'Scanner une matière',
+                        'Scanner un tissu',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,

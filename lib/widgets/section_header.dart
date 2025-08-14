@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 class SectionHeader extends StatelessWidget {
   final String title;
   final VoidCallback onViewAll;
-  SectionHeader({required this.title, required this.onViewAll, required Null Function() onSeeAllPressed});
+  const SectionHeader({super.key, required this.title, required this.onViewAll});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
