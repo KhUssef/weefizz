@@ -100,7 +100,7 @@ export class FabricService{
       color: fabric.color,
       createdAt: fabric.createdAt,
       type: fabric.type,
-      originalImageUrl: originalFilename ? `/uploads/fabrics/${originalFilename}` : null,
+      imageUrl: iconFilename ? `/uploads/fabrics/${iconFilename}` : null,
     };
   }
 
@@ -247,4 +247,43 @@ async findFabricsByUser(
     };
   });
 }
+
+  async searchFabricsByUser(
+    userId: number,
+    keyword: string,
+    downsized = true,
+    start = 0,
+    limit = 10,
+  ): Promise<any[]> {
+    const qb = this.fabricRepository.createQueryBuilder('fabric');
+    qb.where('fabric.userId = :userId', { userId });
+
+    if (keyword) {
+      qb.andWhere(
+        '(LOWER(fabric.title) LIKE :kw OR LOWER(fabric.type) LIKE :kw)',
+        { kw: `%${keyword.toLowerCase()}%` },
+      );
+    }
+
+    qb.orderBy('fabric.favorited', 'DESC')
+      .skip(start)
+      .take(limit);
+
+    const fabrics = await qb.getMany();
+
+    return fabrics.map((fabric) => {
+      const imagePath = downsized ? fabric.iconPath : fabric.filePath;
+      const filename = imagePath ? path.basename(imagePath) : null;
+
+      return {
+        id: fabric.id,
+        type: fabric.type,
+        color: fabric.color,
+        title: fabric.title,
+        imageUrl: filename ? `/uploads/fabrics/${filename}` : null,
+        favorited: fabric.favorited,
+        createdAt: fabric.createdAt,
+      };
+    });
+  }
 }

@@ -18,13 +18,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-
-    const user = await this.userService.findOne(payload.sub);
+  const user = await this.userService.findOne(payload.sub);
     
     // Return only safe, non-sensitive user data
     return {
       id: user.id,
-      username: user.username,
+  username: user.username,
       email: user.email
     };
   }

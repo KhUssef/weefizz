@@ -42,7 +42,7 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const payload = { username: user.username, sub: user.id };
+    const payload = { email: user.email, sub: user.id };
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.accessSecret,
@@ -58,6 +58,7 @@ export class AuthService {
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
+      username: user.username,
     };
   }
   async signup(signupDTO: signupDTO) {
@@ -90,16 +91,33 @@ export class AuthService {
         secret: this.refreshSecret,
       });
 
-      const newAccessToken = this.jwtService.sign(
-        { username: payload.username, sub: payload.sub },
-        {
-          secret: this.accessSecret,
-          expiresIn: this.accessExpires,
-        },
-      );
+      // Backward compatibility: if old tokens carried username, fetch email by sub
+      let email = (payload as any).email as string | undefined;
+      if (!email && (payload as any).username) {
+        const user = await this.usersService.findOne(payload.sub);
+        email = user.email;
+      }
+      if (!email) {
+        const user = await this.usersService.findOne(payload.sub);
+        email = user.email;
+      }
+
+      // Issue new access and refresh tokens with email in payload
+      const newPayload = { email, sub: payload.sub };
+
+      const newAccessToken = this.jwtService.sign(newPayload, {
+        secret: this.accessSecret,
+        expiresIn: this.accessExpires,
+      });
+
+      const newRefreshToken = this.jwtService.sign(newPayload, {
+        secret: this.refreshSecret,
+        expiresIn: this.refreshExpires,
+      });
 
       return {
         access_token: newAccessToken,
+        refresh_token: newRefreshToken,
       };
     } catch (e) {
       console.error('Refresh token verification failed:', e);

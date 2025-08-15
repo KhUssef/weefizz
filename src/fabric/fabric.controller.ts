@@ -11,7 +11,9 @@ import {
   UseInterceptors, 
   UploadedFile, 
   BadRequestException, 
-  Query
+  Query,
+  ParseBoolPipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
@@ -24,7 +26,7 @@ import { Fabric } from './entities/fabric.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { User } from 'src/auth/decorator/user.decorator';
 import { userInfo } from 'os';
-import { ParseBoolPipe, ParseIntPipe } from '@nestjs/common';
+// removed duplicate import of Parse pipes
 @Controller('fabric')
 export class FabricController {
   private idk = 0;
@@ -75,19 +77,97 @@ export class FabricController {
     return this.fabricService.createWithUserId(fabricData, userId);
   }
 
+  // Identify endpoint: takes an image, creates a Fabric with predetermined test data,
+  // then returns a simple identification result (type + confidence)
+  @UseGuards(JwtAuthGuard)
+  @Post('identify')
+  @UseInterceptors(FileInterceptor('image', {
+    storage: diskStorage({
+      destination: './uploads/fabrics',
+      filename: (req, file, callback) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = extname(file.originalname);
+        const filename = `fabric-${uniqueSuffix}${ext}`;
+        callback(null, filename);
+      },
+    }),
+    fileFilter: (req, file, callback) => {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
+        return callback(new BadRequestException('Only image files are allowed!'), false);
+      }
+      callback(null, true);
+    },
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+  }))
+  async identify(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: Request
+  ): Promise<{ fabric: any; predictions: Array<{ type: string; confidence: number }> }> {
+    console.log(this.idk++);
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+
+    const userId = (req.user as any).id;
+
+    // Predetermined data for testing purposes
+    const preset = {
+      title: 'lollololololdff',
+      description: '+dededcccckk',
+      color: 'kjjj',
+      type: 'ffcdd',
+    } as const;
+
+    // Reuse the same creation logic as the regular create endpoint
+    const fabricData = {
+      ...preset,
+      filePath: file.path,
+    } as any;
+
+  const created = await this.fabricService.createWithUserId(fabricData, userId);
+
+    // Return a mock identification result: a list of { type, confidence }
+    const candidates = [preset.type, 'cotton', 'linen', 'silk', 'wool'];
+    const results = candidates.map((t) => ({
+      type: t,
+      confidence: Math.floor(60 + Math.random() * 40), // 60-99
+    }));
+  console.log("Mock identification results:", results);
+  return { fabric: created, predictions: results };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get()
   findAll(
     @Req() req: Request, 
     @User() user: any, 
     @Query('downsized', new ParseBoolPipe({ optional: true })) downsized = true,
-    @Query("page") page: number=0, 
-    @Query("limit") limit: number=10
+    @Query("page", new ParseIntPipe({ optional: true })) page: number=0, 
+    @Query("limit", new ParseIntPipe({ optional: true })) limit: number=10
   ): Promise<any[]> {
     console.log(this.idk++, { downsized, page, limit });
     const userId = user.id;
     const start = page * limit; // Convert page to start index
     return this.fabricService.findFabricsByUser(userId, downsized, start, limit);
+  }
+
+  // Search fabrics by keyword (title or type), same pagination model
+  @UseGuards(JwtAuthGuard)
+  @Get('search')
+  search(
+    @User() user: any,
+    @Query('q') q: string,
+    @Query('downsized') downsized: boolean = true,
+    @Query('page') page: number = 0,
+    @Query('limit') limit: number = 10,
+  ): Promise<any[]> {
+    console.log(this.idk++);
+    const userId = user.id;
+    const start = page * limit;
+    return this.fabricService.searchFabricsByUser(userId, q?.trim() || '', downsized, start, limit);
   }
 
   @UseGuards(JwtAuthGuard)
