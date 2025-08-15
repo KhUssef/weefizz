@@ -16,7 +16,7 @@ class CustomSearchBar extends StatelessWidget {
         hintText: 'Recherche...',
         hintStyle: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
         filled: true,
-        fillColor: theme.colorScheme.surfaceVariant,
+  fillColor: theme.colorScheme.surfaceContainerHighest,
         contentPadding: const EdgeInsets.symmetric(vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),

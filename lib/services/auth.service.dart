@@ -10,6 +10,7 @@ class AuthService extends ChangeNotifier {
 
   String? accessToken;
   String? refreshToken;
+  String? username;
   bool _connected = false;
   String? lastError;
 
@@ -27,6 +28,21 @@ class AuthService extends ChangeNotifier {
     // Redirect to login if disconnected
     if (!value) {
       _redirectToLogin();
+    }
+  }
+
+  AuthService() {
+    _hydrateFromStorage();
+  }
+
+  Future<void> _hydrateFromStorage() async {
+    try {
+      accessToken = await _storage.read(key: 'accessToken');
+      refreshToken = await _storage.read(key: 'refreshToken');
+      username = await _storage.read(key: 'username');
+      _setConnected(accessToken != null);
+    } catch (e) {
+      _logger.w('Failed to hydrate auth from storage', error: e);
     }
   }
 
@@ -50,9 +66,13 @@ class AuthService extends ChangeNotifier {
 
       accessToken = response.data['access_token'];
       refreshToken = response.data['refresh_token'];
+      username = response.data['username'];
 
       await _storage.write(key: 'accessToken', value: accessToken);
       await _storage.write(key: 'refreshToken', value: refreshToken);
+      if (username != null) {
+        await _storage.write(key: 'username', value: username);
+      }
       _setConnected(true);
 
       debugPrint('Login success');
@@ -78,10 +98,12 @@ class AuthService extends ChangeNotifier {
   Future<void> logout() async {
     accessToken = null;
     refreshToken = null;
+  username = null;
     lastError = null;
 
     await _storage.delete(key: 'accessToken');
     await _storage.delete(key: 'refreshToken');
+  await _storage.delete(key: 'username');
 
     _setConnected(false);
     debugPrint('Logout complete');

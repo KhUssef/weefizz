@@ -62,27 +62,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   }
 
   void _onAddPressed() {
-    // Navigate to new project screen from home
-    if (_currentIndex == 0) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => const NewProjectScreen(),
-        ),
-      );
-    } else {
-      // Handle add button press based on current screen
-      switch (_currentIndex) {
-        case 1: // Templates
-          debugPrint('Add new template');
-          break;
-        case 2: // Fabrics
-          debugPrint('Add new fabric');
-          break;
-        case 3: // Profile
-          debugPrint('Add new item from profile');
-          break;
-      }
-    }
+    // Always navigate to the same creation page from any tab
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const NewProjectScreen(),
+      ),
+    );
   }
 
   @override

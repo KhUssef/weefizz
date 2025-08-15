@@ -6,6 +6,7 @@ import '../services/fabrics.service.dart';
 import '../services/templates.service.dart';
 import './main_navigation.dart';
 import '../widgets/featured_fabrics_strip.dart';
+import '../services/auth.service.dart';
 
 class HomeScreen extends StatefulWidget {
   final ValueChanged<int>? onSelectTab;
@@ -58,12 +59,18 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Text(
-                    'Bonjour, Vladimir 👋',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
+                  child: Consumer<AuthService>(
+                    builder: (context, auth, _) {
+                      final name = auth.username;
+                      final display = (name != null && name.isNotEmpty) ? name : 'Invité';
+                      return Text(
+                        'Bonjour, $display 👋',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      );
+                    },
                   ),
                 ),
                 

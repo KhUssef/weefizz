@@ -146,6 +146,13 @@ class ApiClient {
     await _storage.delete(key: 'refreshToken');
   }
 
+  // Provide auth headers for non-Dio HTTP loads (e.g., Image.network)
+  static Future<Map<String, String>> getAuthHeaders() async {
+    final token = await _storage.read(key: 'accessToken');
+    if (token == null) return {};
+    return {'Authorization': 'Bearer $token'};
+  }
+
   // Method to check if user is authenticated
   static Future<bool> isAuthenticated() async {
     final token = await _storage.read(key: 'accessToken');

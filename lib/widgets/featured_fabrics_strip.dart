@@ -135,11 +135,12 @@ class _FeaturedCard extends StatelessWidget {
               else
                 Container(color: Colors.grey[200]),
               // Favorite button overlay
-              Positioned(
+        Positioned(
                 top: 8,
                 right: 8,
                 child: GestureDetector(
-                  onTap: onFavoriteTap,
+          behavior: HitTestBehavior.opaque,
+          onTap: onFavoriteTap,
                   child: Container(
                     width: 32,
                     height: 32,

@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import 'api_client.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+// Use full dio import (DioException, FormData, MultipartFile)
 
 class FabricsService extends ChangeNotifier {
   static final _logger = Logger();
@@ -19,6 +21,13 @@ class FabricsService extends ChangeNotifier {
   bool _isLoadingHomeFull = false;
   int _currentPage = 1;
   bool _hasMore = true;
+  // Search mode state
+  bool _isSearchMode = false;
+  String _searchQuery = '';
+  bool _searchDownsized = true;
+  int? _searchLimit;
+  Timer? _searchDebounce;
+  static const int _searchDebounceMs = 350;
   String? lastError;
   String? featuredError;
   String? homeFullError;
@@ -54,6 +63,8 @@ class FabricsService extends ChangeNotifier {
   bool get isLoadingHomeFull => _isLoadingHomeFull;
   bool get hasMore => _hasMore;
   int get currentPage => _currentPage;
+  bool get isSearchMode => _isSearchMode;
+  String get currentSearchQuery => _searchQuery;
 
   void _setLoading(bool value) {
     _isLoading = value;
@@ -188,6 +199,165 @@ class FabricsService extends ChangeNotifier {
     }
   }
 
+  // Identify a fabric by uploading an image and returning { fabric, predictions }
+  // predictions -> List<{type, confidence}>
+  Future<Map<String, dynamic>> identifyFabric(String imagePath) async {
+    try {
+      final form = FormData.fromMap({
+        'image': await MultipartFile.fromFile(imagePath, filename: imagePath.split('/').last),
+      });
+      final res = await ApiClient.dio.post('/fabric/identify', data: form);
+      if (res.statusCode == 200 || res.statusCode==201) {
+        final data = res.data;
+        debugPrint('identifyFabric response: $data');
+        debugPrint('identifyFabric response type: ${data.runtimeType}');
+
+        Map<String, dynamic>? fabric;
+        final predictions = <Map<String, dynamic>>[];
+
+        if (data is Map && data.containsKey('fabric') && data.containsKey('predictions')) {
+          final f = Map<String, dynamic>.from(data['fabric'] as Map);
+          fabric = _normalizeFabric(f);
+          final predsRaw = data['predictions'];
+          if (predsRaw is List) {
+            for (final e in predsRaw) {
+              if (e is Map) {
+                predictions.add({
+                  'type': e['type']?.toString() ?? 'inconnu',
+                  'confidence': (e['confidence'] as num?)?.toDouble() ?? 0.0,
+                });
+              }
+            }
+          } else if (predsRaw is Map) {
+            predsRaw.forEach((k, v) {
+              final conf = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
+              predictions.add({'type': k.toString(), 'confidence': conf});
+            });
+          }
+        } else if (data is Map) {
+          // Back-compat: map of type->confidence
+          data.forEach((k, v) {
+            final conf = (v is num) ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0;
+            predictions.add({'type': k.toString(), 'confidence': conf});
+          });
+        } else if (data is List) {
+          // Back-compat: list of {type, confidence}
+          for (final e in data) {
+            if (e is Map) {
+              predictions.add({'type': e['type']?.toString() ?? 'inconnu', 'confidence': (e['confidence'] as num?)?.toDouble() ?? 0.0});
+            }
+          }
+        }
+
+        if (predictions.isEmpty) predictions.add({'type': 'inconnu', 'confidence': 0.0});
+        predictions.sort((a,b) => (b['confidence'] as double).compareTo(a['confidence'] as double));
+
+        // Best effort: prefetch image for fabric if present
+        if (fabric != null) {
+          try { await _prefetchAndCacheImages([fabric]); } catch (_) {}
+        } else {
+          // fabricate a minimal fabric for back-compat callers
+          final firstType = predictions.first['type']?.toString() ?? 'Tissu';
+          fabric = {
+            'id': null,
+            'title': firstType,
+            'type': firstType,
+            'createdAt': DateTime.now().toIso8601String(),
+          };
+        }
+
+        return {
+          'fabric': fabric,
+          'predictions': predictions,
+        };
+      } else {
+        _logger.w('identifyFabric failed: ${res.statusCode}');
+        return {
+          'fabric': {
+            'id': null,
+            'title': 'Tissu',
+            'type': 'inconnu',
+            'createdAt': DateTime.now().toIso8601String(),
+          },
+          'predictions': [ {'type': 'inconnu', 'confidence': 0.0} ],
+        };
+      }
+    } catch (e, st) {
+      _logger.e('identifyFabric error', error: e, stackTrace: st);
+      return {
+        'fabric': {
+          'id': null,
+          'title': 'Tissu',
+          'type': 'inconnu',
+          'createdAt': DateTime.now().toIso8601String(),
+        },
+        'predictions': [ {'type': 'inconnu', 'confidence': 0.0} ],
+      };
+    }
+  }
+
+  // Internal: fetch a specific SEARCH page
+  Future<bool> _fetchSearchPage(int page, {required String query, bool downsized = true, int? limit}) async {
+    try {
+      final qp = <String, dynamic>{
+        'q': query,
+        'page': page,
+        'downsized': downsized,
+      };
+      if (limit != null) qp['limit'] = limit;
+      final response = await ApiClient.dio.get('/fabric/search', queryParameters: qp);
+
+      if (response.statusCode == 200) {
+        final list = List<Map<String, dynamic>>.from(response.data).map(_normalizeFabric).toList();
+        await _prefetchAndCacheImages(list);
+
+        // Preserve previous items if refresh returns empty to avoid wiping list
+        List<Map<String, dynamic>> merged;
+        if (page == 0) {
+          merged = list.isEmpty ? _fabrics : list;
+        } else {
+          merged = [..._fabrics, ...list];
+        }
+
+        // Apply persistent favorite overrides
+        for (final m in merged) {
+          final id = m['id'] as String?;
+          if (id != null && _favoriteOverrides.containsKey(id)) {
+            m['favorited'] = _favoriteOverrides[id];
+          }
+        }
+
+        _fabrics = merged;
+        _currentPage = page;
+        _hasMore = list.isNotEmpty;
+        debugPrint('Fetched search page $page for "$query"; total: ${_fabrics.length}');
+        return true;
+      } else {
+        _setError('Failed to search fabrics: ${response.statusCode}');
+        return false;
+      }
+    } on DioException catch (e) {
+      if (_isLoading) _setLoading(false);
+      _isLoadingMore = false; notifyListeners();
+
+      if (e.response?.statusCode == 401) {
+        _setError('Non autorisé - veuillez vous reconnecter');
+      } else if (e.response?.statusCode == 403) {
+        _setError('Accès interdit');
+      } else {
+        _setError('Erreur: ${e.response?.statusCode ?? 'réseau'}');
+      }
+      _logger.e('Fetch search page error', error: e);
+      return false;
+    } catch (e) {
+      if (_isLoading) _setLoading(false);
+      _isLoadingMore = false; notifyListeners();
+      _setError('Erreur de réseau');
+      _logger.e('Unexpected search page error', error: e);
+      return false;
+    }
+  }
+
   // Internal: fetch a specific page
   Future<bool> _fetchFabricsPage(int page) async {
     try {
@@ -199,9 +369,10 @@ class FabricsService extends ChangeNotifier {
   final list = List<Map<String, dynamic>>.from(response.data).map(_normalizeFabric).toList();
         await _prefetchAndCacheImages(list);
 
+        // Preserve previous items if refresh returns empty to avoid wiping list
         List<Map<String, dynamic>> merged;
         if (page == 1) {
-          merged = list;
+          merged = list.isEmpty ? _fabrics : list;
         } else {
           merged = [..._fabrics, ...list];
         }
@@ -253,6 +424,12 @@ class FabricsService extends ChangeNotifier {
     _setError(null);
     _hasMore = true;
     _currentPage = 0;
+    // Exit search mode
+    _isSearchMode = false;
+    _searchQuery = '';
+  _searchDownsized = true;
+  _searchLimit = null;
+  _searchDebounce?.cancel();
   // Drop current list immediately
   clearFabrics();
   // Do not clear global caches here to avoid interfering with Home full-size caching
@@ -270,6 +447,56 @@ class FabricsService extends ChangeNotifier {
     final ok = await _fetchFabricsPage(next);
     _isLoadingMore = false; notifyListeners();
     return ok;
+  }
+
+  // Public: Start a paged search (page 0)
+  Future<bool> startSearch(String query, {bool downsized = true, int? limit}) async {
+    _setError(null);
+    _isSearchMode = true;
+    _searchQuery = query.trim();
+    _searchDownsized = downsized;
+    _searchLimit = limit;
+    _hasMore = true;
+    _currentPage = 0;
+
+    // Debounce: schedule the actual fetch
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(Duration(milliseconds: _searchDebounceMs), () async {
+      // If search mode was canceled meanwhile, skip
+      if (!_isSearchMode) return;
+      // Start loading and fetch page 0 for current query
+      _setLoading(true);
+      // clear list just before fetching to show proper loading state
+      _fabrics = [];
+      final ok = await _fetchSearchPage(0, query: _searchQuery, downsized: _searchDownsized, limit: _searchLimit);
+      _setLoading(false);
+      // No need to return value here; callers of startSearch don't await result
+      if (!ok) {
+        // keep hasMore false to prevent loadMore thrash if backend fails
+        _hasMore = false;
+      }
+    });
+    // Indicate scheduling succeeded
+    return Future.value(true);
+  }
+
+  // Public: Load next page depending on mode (search vs list)
+  Future<bool> loadMore() async {
+    if (_isLoadingMore || _isLoading || !_hasMore) return false;
+    _isLoadingMore = true; notifyListeners();
+    final next = _currentPage + 1;
+  final ok = _isSearchMode
+    ? await _fetchSearchPage(next, query: _searchQuery, downsized: _searchDownsized, limit: _searchLimit)
+        : await _fetchFabricsPage(next);
+    _isLoadingMore = false; notifyListeners();
+    return ok;
+  }
+
+  // Public: Cancel search and return to normal list
+  Future<bool> cancelSearch() async {
+    if (!_isSearchMode) return true;
+  _searchDebounce?.cancel();
+    return fetchAllFabrics();
   }
 
   // Fetch a single fabric by ID
@@ -605,53 +832,8 @@ class FabricsService extends ChangeNotifier {
     }
   }
 
-  // Search fabrics
-  Future<bool> searchFabrics(String query) async {
-    _setLoading(true);
-    _setError(null);
-
-    try {
-      final response = await ApiClient.dio.get('/fabric/search', queryParameters: {'q': query});
-
-      if (response.statusCode == 200) {
-        final list = List<Map<String, dynamic>>.from(response.data).map(_normalizeFabric).toList();
-        await _prefetchAndCacheImages(list);
-        // Apply persistent favorite overrides
-        for (final m in list) {
-          final id = m['id'] as String?;
-          if (id != null && _favoriteOverrides.containsKey(id)) {
-            m['favorited'] = _favoriteOverrides[id];
-          }
-        }
-        _fabrics = list;
-        _setLoading(false);
-        debugPrint('Found ${_fabrics.length} fabrics matching "$query"');
-        return true;
-      } else {
-        _setError('Failed to search fabrics: ${response.statusCode}');
-        _setLoading(false);
-        return false;
-      }
-    } on DioException catch (e) {
-      _setLoading(false);
-
-      if (e.response?.statusCode == 401) {
-        _setError('Non autorisé - veuillez vous reconnecter');
-      } else if (e.response?.statusCode == 403) {
-        _setError('Accès interdit');
-      } else {
-        _setError('Erreur: ${e.response?.statusCode ?? 'réseau'}');
-      }
-
-      _logger.e('Search fabrics error', error: e);
-      return false;
-    } catch (e) {
-      _setLoading(false);
-      _setError('Erreur de réseau');
-      _logger.e('Unexpected search fabrics error', error: e);
-      return false;
-    }
-  }
+  // Back-compat: simple search delegates to paged start
+  Future<bool> searchFabrics(String query) => startSearch(query);
 
   // Clear current fabric
   void clearCurrentFabric() {
@@ -669,19 +851,28 @@ class FabricsService extends ChangeNotifier {
   // Toggle favorite state (optimistic update, uses PUT /fabric/:id)
   Future<bool> toggleFavorite(String fabricId, bool favorited) async {
     _setError(null);
-    // optimistic update
-    final idx = _fabrics.indexWhere((f) => f['id'] == fabricId);
-    bool? previous;
-    if (idx != -1) {
-      previous = _fabrics[idx]['favorited'] as bool?;
-      _fabrics[idx]['favorited'] = favorited;
+    // optimistic update on all relevant caches (list, home strip, current)
+    final idxAll = _fabrics.indexWhere((f) => f['id'] == fabricId);
+    final idxHome = _homeFullFabrics.indexWhere((f) => f['id'] == fabricId);
+
+    bool? previousAll;
+    bool? previousHome;
+    bool? previousCurrent;
+
+    if (idxAll != -1) {
+      previousAll = _fabrics[idxAll]['favorited'] as bool?;
+      _fabrics[idxAll]['favorited'] = favorited;
+    }
+    if (idxHome != -1) {
+      previousHome = _homeFullFabrics[idxHome]['favorited'] as bool?;
+      _homeFullFabrics[idxHome]['favorited'] = favorited;
     }
     if (_currentFabric?['id'] == fabricId) {
-      previous ??= _currentFabric!['favorited'] as bool?;
+      previousCurrent = _currentFabric!['favorited'] as bool?;
       _currentFabric!['favorited'] = favorited;
     }
-  // Persist override so refetch won't reset it
-  _favoriteOverrides[fabricId] = favorited;
+    // Persist override so refetch won't reset it
+    _favoriteOverrides[fabricId] = favorited;
     notifyListeners();
 
     try {
@@ -690,7 +881,7 @@ class FabricsService extends ChangeNotifier {
       });
 
       if (response.statusCode == 200) {
-  final updated = _normalizeFabric(Map<String, dynamic>.from(response.data ?? {}));
+        final updated = _normalizeFabric(Map<String, dynamic>.from(response.data ?? {}));
         // merge cache paths if missing
         final abs = _absoluteImageUrl(updated['imageUrl'] as String?);
         updated['absoluteImageUrl'] = updated['absoluteImageUrl'] ?? abs;
@@ -705,27 +896,39 @@ class FabricsService extends ChangeNotifier {
           } catch (_) {}
         }
 
-        if (idx != -1) {
-          _fabrics[idx] = {
-            ..._fabrics[idx],
+        if (idxAll != -1) {
+          _fabrics[idxAll] = {
+            ..._fabrics[idxAll],
             ...updated,
+            'favorited': favorited,
+          };
+        }
+        if (idxHome != -1) {
+          _homeFullFabrics[idxHome] = {
+            ..._homeFullFabrics[idxHome],
+            ...updated,
+            'favorited': favorited,
           };
         }
         if (_currentFabric?['id'] == fabricId) {
           _currentFabric = {
             ...?_currentFabric,
             ...updated,
+            'favorited': favorited,
           };
         }
         notifyListeners();
         return true;
       } else {
         // revert
-        if (idx != -1 && previous != null) {
-          _fabrics[idx]['favorited'] = previous;
+        if (idxAll != -1 && previousAll != null) {
+          _fabrics[idxAll]['favorited'] = previousAll;
         }
-        if (_currentFabric?['id'] == fabricId && previous != null) {
-          _currentFabric!['favorited'] = previous;
+        if (idxHome != -1 && previousHome != null) {
+          _homeFullFabrics[idxHome]['favorited'] = previousHome;
+        }
+        if (_currentFabric?['id'] == fabricId && previousCurrent != null) {
+          _currentFabric!['favorited'] = previousCurrent;
         }
         notifyListeners();
         _setError('Échec de la mise à jour du favori: ${response.statusCode}');
@@ -733,11 +936,14 @@ class FabricsService extends ChangeNotifier {
       }
     } on DioException catch (e) {
       // revert
-      if (idx != -1 && previous != null) {
-        _fabrics[idx]['favorited'] = previous;
+      if (idxAll != -1 && previousAll != null) {
+        _fabrics[idxAll]['favorited'] = previousAll;
       }
-      if (_currentFabric?['id'] == fabricId && previous != null) {
-        _currentFabric!['favorited'] = previous;
+      if (idxHome != -1 && previousHome != null) {
+        _homeFullFabrics[idxHome]['favorited'] = previousHome;
+      }
+      if (_currentFabric?['id'] == fabricId && previousCurrent != null) {
+        _currentFabric!['favorited'] = previousCurrent;
       }
       notifyListeners();
 
@@ -754,11 +960,14 @@ class FabricsService extends ChangeNotifier {
       return false;
     } catch (e) {
       // revert
-      if (idx != -1 && previous != null) {
-        _fabrics[idx]['favorited'] = previous;
+      if (idxAll != -1 && previousAll != null) {
+        _fabrics[idxAll]['favorited'] = previousAll;
       }
-      if (_currentFabric?['id'] == fabricId && previous != null) {
-        _currentFabric!['favorited'] = previous;
+      if (idxHome != -1 && previousHome != null) {
+        _homeFullFabrics[idxHome]['favorited'] = previousHome;
+      }
+      if (_currentFabric?['id'] == fabricId && previousCurrent != null) {
+        _currentFabric!['favorited'] = previousCurrent;
       }
       notifyListeners();
       _setError('Erreur de réseau');

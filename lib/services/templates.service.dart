@@ -1,8 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import 'package:flutter/painting.dart';
 import 'package:logger/logger.dart';
 import 'api_client.dart';
 
@@ -45,7 +43,7 @@ class TemplatesService extends ChangeNotifier {
       if (response.statusCode == 200) {
         final list = List<Map<String, dynamic>>.from(response.data);
         if (page == 1) {
-          _templates = list;
+          _templates = list.isEmpty ? _templates : list; // don't wipe if empty
         } else {
           _templates.addAll(list);
         }

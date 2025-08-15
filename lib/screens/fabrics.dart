@@ -20,6 +20,7 @@ class _FabricsScreenState extends State<FabricsScreen> {
   void initState() {
     super.initState();
   _scrollController.addListener(_onScroll);
+  _searchController.addListener(() => setState(() {}));
   }
 
   @override
@@ -43,8 +44,8 @@ class _FabricsScreenState extends State<FabricsScreen> {
     final max = _scrollController.position.maxScrollExtent;
     final offset = _scrollController.offset;
     if (offset >= max - 200) {
-      // near bottom, try to load more
-      context.read<FabricsService>().loadMoreFabrics();
+      // near bottom, try to load more (search-aware)
+      context.read<FabricsService>().loadMore();
     }
   }
 
@@ -177,24 +178,46 @@ class _FabricsScreenState extends State<FabricsScreen> {
                       ),
                       child: TextField(
                         controller: _searchController,
-                        decoration: const InputDecoration(
+                        onChanged: (value) {
+                          final svc = context.read<FabricsService>();
+                          final v = value; // allow service to trim and debounce
+                          if (v.trim().isEmpty) {
+                            if (svc.isSearchMode) {
+                              svc.cancelSearch();
+                            }
+                          } else {
+                            svc.startSearch(v);
+                          }
+                        },
+                        decoration: InputDecoration(
                           hintText: 'recherche',
-                          hintStyle: TextStyle(
+                          hintStyle: const TextStyle(
                             color: Colors.grey,
                             fontSize: 16,
                           ),
-                          prefixIcon: Icon(
+                          prefixIcon: const Icon(
                             Icons.search,
                             color: Colors.grey,
                             size: 20,
                           ),
-                          suffixIcon: Icon(
-                            Icons.close,
-                            color: Colors.grey,
-                            size: 18,
-                          ),
+                          suffixIcon: _searchController.text.isEmpty
+                              ? null
+                              : GestureDetector(
+                                  onTap: () {
+                                    _searchController.clear();
+                                    final svc = context.read<FabricsService>();
+                                    if (svc.isSearchMode) {
+                                      svc.cancelSearch();
+                                    }
+                                  },
+                                  child: const Icon(
+                                    Icons.close,
+                                    color: Colors.grey,
+                                    size: 18,
+                                  ),
+                                ),
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         ),
                       ),
                     ),
@@ -203,7 +226,7 @@ class _FabricsScreenState extends State<FabricsScreen> {
                   GestureDetector(
                     onTap: () {
                       _searchController.clear();
-                      debugPrint('Cancel search pressed');
+                      context.read<FabricsService>().cancelSearch();
                     },
                     child: const Text(
                       'Annuler',
