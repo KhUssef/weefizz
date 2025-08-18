@@ -38,6 +38,9 @@ export class Piece {
   @Column('int')
   area: number;
 
+  @Column({ nullable: true, default: 1 })
+  NumberOfPieces : number;
+
 
   @CreateDateColumn()
   createdAt: Date;
