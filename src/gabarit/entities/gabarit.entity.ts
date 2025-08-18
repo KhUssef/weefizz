@@ -20,7 +20,7 @@ export class Gabarit {
   @Column()
   name: string;
 
-  @Column()
+  @Column({nullable: true})
   description: String;
 
   @Column()
@@ -38,7 +38,7 @@ export class Gabarit {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ nullable: true, comment: 'scale used for picture to real life resizeing : 1 pixel in the picture corresponds to X cm in real life', default: 1 })
+  @Column({ nullable: false, comment: 'scale used for picture to real life resizeing : 1 pixel in the picture corresponds to X cm in real life', default: 1 })
   scale: number;
   
   @Column({ default: false })

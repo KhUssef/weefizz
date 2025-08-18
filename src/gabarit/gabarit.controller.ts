@@ -40,7 +40,7 @@ export class GabaritController {
       },
     }),
     fileFilter: (req, file, callback) => {
-      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+      if (!file.originalname.match(/\.(jpg|jpeg|png)$/)) {
         return callback(new BadRequestException('Only image files are allowed!'), false);
       }
       callback(null, true);
@@ -71,13 +71,12 @@ export class GabaritController {
   @Get()
   findAll(
     @User() user: any, 
-    @Query("downsized") downsized: boolean=true, 
     @Query("page") page: number=0, 
     @Query("limit") limit: number=10
   ) {
     const userId = user.id;
     const start = page * limit; // Convert page to start index
-    return this.gabaritService.findGabaritsByUser(userId, downsized, start, limit);
+    return this.gabaritService.findGabaritsByUser(userId, start, limit);
   }
 
   @UseGuards(JwtAuthGuard)

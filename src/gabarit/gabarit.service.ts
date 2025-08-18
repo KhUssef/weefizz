@@ -148,7 +148,6 @@ export class GabaritService {
 
   async findGabaritsByUser(
     userId: number,
-    downsized = true,
     start: number,
     limit: number
   ): Promise<any[]> {
@@ -159,17 +158,17 @@ export class GabaritService {
     });
 
     return gabarits.map(gabarit => {
-      const imagePath = downsized ? gabarit.iconPath : gabarit.filePath;
-      const filename = imagePath ? path.basename(imagePath) : null;
+      const imagePath =gabarit.filePath;
+      const iconPath =  gabarit.iconPath
       
       return {
         id: gabarit.id,
         name: gabarit.name,
         scale: gabarit.scale,
-        imageUrl: filename ? `/gabarit/image/${filename}` : null,
+        imageUrl: imagePath ? imagePath : null,
+        iconUrl : iconPath ? iconPath : null,
         favorited: gabarit.favorited,
-        createdAt: gabarit.createdAt,
-        updatedAt: gabarit.updatedAt,
+        createdAt: gabarit.createdAt,        
       };
     });
   }
