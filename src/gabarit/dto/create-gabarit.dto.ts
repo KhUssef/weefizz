@@ -8,6 +8,6 @@ export class CreateGabaritDto {
   // filePath will be set automatically after file upload
   @IsOptional()
   @IsString()
-  filePath?: string; 
+  filePath?: string;
 }
 

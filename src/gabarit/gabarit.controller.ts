@@ -11,10 +11,11 @@ import {
   UseGuards,
   Req,
   BadRequestException,
-  Query
+  Query,
+  Res
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { GabaritService } from './gabarit.service';
@@ -141,5 +142,13 @@ export class GabaritController {
       return { url: `/gabarit/image/${filename}` };
     }
     throw new BadRequestException('Image not found');
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('detectborders/:id')
+  async detectBorders(@Param('id') id: string, @User() user: any, @Res() res: Response) {
+    const resultBuffer = await this.gabaritService.detectBorders(id, user.id);
+    res.setHeader('Content-Type', 'image/png');
+    res.send(resultBuffer);
   }
 }

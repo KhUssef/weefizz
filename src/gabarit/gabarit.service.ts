@@ -9,6 +9,8 @@ import { SafeUserDto } from '../user/dto/safe-user.dto';
 import * as sharp from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs'; 
+import axios from 'axios';
+import * as FormData from 'form-data';
 
 @Injectable()
 export class GabaritService {
@@ -301,5 +303,48 @@ export class GabaritService {
     this.gabaritRepository.remove(gabarit);
   }
 
-  // Add custom gabarit-specific methods here if needed
+  async detectBorders(id: string, userId: number): Promise<Buffer> {
+    // 1) Ensure the gabarit exists and belongs to the requesting user
+    const gabarit = await this.gabaritRepository.findOne({
+      where: { id, user: { id: userId } },
+    });
+    if (!gabarit) {
+      throw new NotFoundException(`Gabarit with id ${id} not found or you don't have access to it`);
+    }
+
+    // 2) Resolve the absolute path to the stored image
+    const imagePath = path.join(process.cwd(), gabarit.filePath);
+    if (!fs.existsSync(imagePath)) {
+      throw new NotFoundException('Gabarit image file not found on disk');
+    }
+
+    // 3) Build multipart/form-data
+    const form = new FormData();
+    const filename = path.basename(imagePath);
+    form.append('file', fs.createReadStream(imagePath), filename);
+
+    // 4) Call the FastAPI service
+    try {
+  const response = await axios.post(
+        'http://127.0.0.1:8000/process-gabarit',
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Accept: 'image/png',
+          },
+          responseType: 'arraybuffer',
+          timeout: 15000,
+        }
+      );
+
+  const data = response.data as ArrayBuffer; // axios types data as unknown
+  return Buffer.from(data);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
+      throw new Error(`Border detection failed${status ? ` (${status})` : ''}: ${detail}`);
+    }
+  }
+
 }
