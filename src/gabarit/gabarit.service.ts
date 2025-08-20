@@ -19,7 +19,6 @@ export class GabaritService {
     private readonly gabaritRepository: Repository<Gabarit>,
   ) {}
 
-
   async create(createGabaritDto: CreateGabaritDto & { filePath: string }, userId: number): Promise<Gabarit> {
     // Get file extension and base name from the already unique file path
     const fileExtension = path.extname(createGabaritDto.filePath);
@@ -338,12 +337,144 @@ export class GabaritService {
         }
       );
 
-  const data = response.data as ArrayBuffer; // axios types data as unknown
+  const data = response.data as ArrayBuffer; 
   return Buffer.from(data);
     } catch (err: any) {
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
       throw new Error(`Border detection failed${status ? ` (${status})` : ''}: ${detail}`);
+    }
+  }
+
+  async processGabaritFull(gabaritId: string, userId: number): Promise<{
+    processedImage: Buffer;
+    gabaritPieces: any[];
+    totalPieces: number;
+    imageDimensions: { width: number; height: number };
+  }> {
+    // 1) Find the gabarit and verify ownership
+    const gabarit = await this.gabaritRepository.findOne({
+      where: { id: gabaritId, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    if (!gabarit) {
+      throw new NotFoundException('Gabarit not found or access denied');
+    }
+
+    // 2) Resolve the absolute path to the stored image
+    const imagePath = path.join(process.cwd(), gabarit.filePath);
+    if (!fs.existsSync(imagePath)) {
+      throw new NotFoundException('Gabarit image file not found on disk');
+    }
+
+    // 3) Build multipart/form-data
+    const form = new FormData();
+    const filename = path.basename(imagePath);
+    form.append('file', fs.createReadStream(imagePath), filename);
+
+    // 4) Call the FastAPI /gabarit-full service
+    try {
+      const response = await axios.post(
+        'http://127.0.0.1:8000/gabarit-full',
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Accept: 'application/json',
+          },
+          timeout: 30000, // Increased timeout for more complex processing
+        }
+      );
+
+      const responseData = response.data as {
+        processed_image: string;
+        gabarit_pieces: any[];
+        total_pieces: number;
+        image_dimensions: { width: number; height: number };
+      };
+
+      
+      
+      const base64Data = responseData.processed_image.replace(/^data:image\/png;base64,/, '');
+      const processedImageBuffer = Buffer.from(base64Data, 'base64');
+      
+      console.log('✅ Converted buffer length:', processedImageBuffer.length);
+      console.log('✅ Buffer first 10 bytes:', Array.from(processedImageBuffer.slice(0, 10)));
+
+      return {
+        processedImage: processedImageBuffer,
+        gabaritPieces: responseData.gabarit_pieces,
+        totalPieces: responseData.total_pieces,
+        imageDimensions: responseData.image_dimensions,
+      };
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.error || err?.message || 'Unknown error';
+      throw new Error(`Gabarit full processing failed${status ? ` (${status})` : ''}: ${detail}`);
+    }
+  }
+
+  async processGabaritFullImageOnly(gabaritId: string, userId: number): Promise<Buffer> {
+    // 1) Find the gabarit and verify ownership
+    const gabarit = await this.gabaritRepository.findOne({
+      where: { id: gabaritId, user: { id: userId } },
+      relations: ['user'],
+    });
+
+    if (!gabarit) {
+      throw new NotFoundException('Gabarit not found or access denied');
+    }
+
+    // 2) Resolve the absolute path to the stored image
+    const imagePath = path.join(process.cwd(), gabarit.filePath);
+    if (!fs.existsSync(imagePath)) {
+      throw new NotFoundException('Gabarit image file not found on disk');
+    }
+
+    // 3) Build multipart/form-data
+    const form = new FormData();
+    const filename = path.basename(imagePath);
+    form.append('file', fs.createReadStream(imagePath), filename);
+
+    // 4) Call the FastAPI service and get JSON response
+    try {
+      const response = await axios.post(
+        'http://127.0.0.1:8000/gabarit-full',
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Accept: 'application/json',
+          },
+          timeout: 30000,
+        }
+      );
+
+      const responseData = response.data as {
+        processed_image: string;
+        gabarit_pieces: any[];
+        total_pieces: number;
+        image_dimensions: { width: number; height: number };
+      };
+
+      // 5) Extract and convert base64 to buffer
+      let base64Data = responseData.processed_image;
+      
+      // Remove data URL prefix if present
+      if (base64Data.startsWith('data:image/')) {
+        base64Data = base64Data.split(',')[1];
+      }
+      
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+      
+      console.log('🎯 Direct conversion - Buffer length:', imageBuffer.length);
+      
+      return imageBuffer;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.error || err?.message || 'Unknown error';
+      throw new Error(`Gabarit image processing failed${status ? ` (${status})` : ''}: ${detail}`);
     }
   }
 

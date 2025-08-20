@@ -151,4 +151,55 @@ export class GabaritController {
     res.setHeader('Content-Type', 'image/png');
     res.send(resultBuffer);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('process-full/:id')
+  async processGabaritFull(@Param('id') id: string, @User() user: any, @Res() res: Response) {
+    const result = await this.gabaritService.processGabaritFull(id, user.id);
+    
+    // Set custom headers with the metadata (avoiding base64)
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('X-Gabarit-Total-Pieces', result.totalPieces.toString());
+    res.setHeader('X-Gabarit-Image-Width', result.imageDimensions.width.toString());
+    res.setHeader('X-Gabarit-Image-Height', result.imageDimensions.height.toString());
+    res.setHeader('X-Gabarit-Pieces', JSON.stringify(result.gabaritPieces));
+    
+    // Return the actual image as binary
+    return res.end(result.processedImage);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('process-full-info/:id')
+  async processGabaritFullInfo(@Param('id') id: string, @User() user: any) {
+    const result = await this.gabaritService.processGabaritFull(id, user.id);
+    
+    // Return only the metadata as JSON, with a URL to get the image
+    return {
+      gabaritPieces: result.gabaritPieces,
+      totalPieces: result.totalPieces,
+      imageDimensions: result.imageDimensions,
+      processedImageUrl: `/gabarit/process-full-image/${id}`,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('process-full-image/:id')
+  async processGabaritFullImage(@Param('id') id: string, @User() user: any, @Res() res: Response) {
+    try {
+      const result = await this.gabaritService.processGabaritFull(id, user.id);
+      
+      // Debug: Log the buffer length
+      console.log('📷 Processed image buffer length:', result.processedImage.length);
+      
+      // Set proper headers for image response
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Content-Length', result.processedImage.length);
+      
+      // Send the buffer directly
+      return res.end(result.processedImage);
+    } catch (error) {
+      console.error('❌ Error in processGabaritFullImage:', error);
+      throw error;
+    }
+  }
 }
