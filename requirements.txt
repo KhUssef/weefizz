@@ -4,3 +4,6 @@ tensorflow
 pillow
 numpy
 scikit-learn
+opencv-python
+pytesseract
+python-multipart
