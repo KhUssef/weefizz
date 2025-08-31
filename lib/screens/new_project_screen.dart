@@ -9,9 +9,14 @@ import '../services/api_client.dart';
 import '../services/fabrics.service.dart';
 import '../widgets/type_selection_sheet.dart';
 import '../widgets/fabric_editor_sheet.dart';
+import '../services/templates.service.dart';
+import 'project_details.dart';
+import '../widgets/quantity_input_sheet.dart';
+import 'quantity_result_screen.dart';
 
 class NewProjectScreen extends StatefulWidget {
-  const NewProjectScreen({super.key});
+  final String? initialGabaritId;
+  const NewProjectScreen({super.key, this.initialGabaritId});
 
   @override
   State<NewProjectScreen> createState() => _NewProjectScreenState();
@@ -37,6 +42,21 @@ class FabricItem {
   });
 }
 
+class GabaritItem {
+  final String id;
+  final String name;
+  final String iconPath;
+  final String? processedImagePath; // absolute processed image URL if available
+  final DateTime? createdAt;
+  GabaritItem({
+    required this.id,
+    required this.name,
+    required this.iconPath,
+    this.processedImagePath,
+    this.createdAt,
+  });
+}
+
 class _NewProjectScreenState extends State<NewProjectScreen> {
   // Debounced search for existing fabrics
   final TextEditingController _materialController = TextEditingController();
@@ -54,6 +74,10 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   final TextEditingController _identificationController = TextEditingController();
   final TextEditingController _templateController = TextEditingController();
   final List<FabricItem> _fabrics = [];
+  final List<GabaritItem> _gabarits = [];
+  // UI state for rename button
+  bool _renaming = false; // spinning
+  bool? _renameOk; // null default, true success, false error (transient)
   // Template search state
   final FocusNode _templateFocus = FocusNode();
   final LayerLink _templateLink = LayerLink();
@@ -65,11 +89,45 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   bool _loadingTemplates = false;
   List<Map<String, dynamic>> _templateResults = [];
 
+  // Upload/loading state for template operations
+  bool _uploadingTemplate = false;
+  String _uploadingMessage = 'Envoi du gabarit...';
+
   @override
   void initState() {
     super.initState();
     _materialFocus.addListener(_handleMaterialFocusChange);
     _templateFocus.addListener(_handleTemplateFocusChange);
+    // If a gabarit id was provided (navigated from Templates/Home), hydrate one card from cache
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final id = widget.initialGabaritId;
+      if (id == null || id.isEmpty) return;
+      final svc = context.read<TemplatesService>();
+      final cached = svc.getProcessedInfo(id) ?? await svc.fetchGabaritById(id);
+      if (!mounted || cached == null) return;
+      // Build a single GabaritItem for display
+      final gab = cached['gabarit'] as Map<String, dynamic>?;
+      final name = (gab?['name'] ?? cached['name'] ?? 'Gabarit').toString();
+      final iconAbs = (cached['absoluteIconUrl'] ?? cached['absoluteImageUrl'] ?? '').toString();
+      final processedAbs = (cached['absoluteProcessedImageUrl'] ?? '').toString();
+      final createdAt = DateTime.tryParse((gab?['createdAt'] ?? cached['createdAt'] ?? '').toString());
+      setState(() {
+        final item = GabaritItem(
+          id: id,
+          name: name,
+          iconPath: iconAbs,
+          processedImagePath: processedAbs.isNotEmpty ? processedAbs : null,
+          createdAt: createdAt,
+        );
+        if (_gabarits.isEmpty) {
+          _gabarits.add(item);
+        } else {
+          _gabarits[0] = item;
+        }
+      });
+  // Also hydrate fabrics from this gabarit's pieces (cache-first, then GET /fabric/:id)
+  await _hydrateFabricsFromGabaritPieces(cached);
+    });
   }
 
   @override
@@ -84,6 +142,74 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   _templateFocus.dispose();
   _templateDebounce?.cancel();
     super.dispose();
+  }
+
+  Future<void> _hydrateFabricsFromGabaritPieces(Map<String, dynamic> cached) async {
+    try {
+      final pieces = cached['pieces'];
+      if (pieces is! List) return;
+      // Collect unique fabric ids as strings
+      final Set<String> fabricIds = {};
+      for (final p in pieces) {
+        if (p is! Map) continue;
+        final fidRaw = p['fabricId'] ?? p['materialId'] ?? p['fabric']?['id'];
+        if (fidRaw == null) continue;
+        final fid = fidRaw.toString();
+        if (fid.isEmpty) continue;
+        fabricIds.add(fid);
+      }
+      if (fabricIds.isEmpty) return;
+
+      final fabSvc = context.read<FabricsService>();
+      final List<Map<String, dynamic>> caches = [
+        ...fabSvc.fabrics,
+        ...fabSvc.featuredFabrics,
+        ...fabSvc.homeFullFabrics,
+      ];
+
+      // Helper to map a fabric map into a FabricItem
+      FabricItem toItem(Map<String, dynamic> m) {
+        final name = (m['title'] ?? m['name'] ?? 'Tissu').toString();
+        final type = (m['type'] ?? m['category'])?.toString();
+        final color = (m['color'] ?? m['colour'])?.toString();
+        final id = m['id']?.toString();
+        DateTime? createdAt;
+        final createdRaw = m['createdAt'] ?? m['created_at'] ?? m['date'];
+        if (createdRaw != null) {
+          createdAt = DateTime.tryParse(createdRaw.toString());
+        }
+        final rawImg = (m['cachedImagePath'] ?? m['absoluteImageUrl'] ?? m['originalImageUrl'] ?? m['imageUrl'] ?? m['iconPath'] ?? m['filePath'] ?? m['image'] ?? m['thumbnail']) as String?;
+        final img = _resolveImagePath(rawImg);
+        return FabricItem(id: id, name: name, imagePath: img, type: type, color: color, createdAt: createdAt, description: m['description']?.toString());
+      }
+
+      // Resolve each fabric id, prefer caches first
+      for (final fid in fabricIds) {
+        if (_fabrics.any((f) => (f.id?.toString() ?? '') == fid)) continue; // already added
+
+        Map<String, dynamic>? found = caches.firstWhere(
+          (m) => (m['id']?.toString() ?? '') == fid,
+          orElse: () => {},
+        );
+        if (found.isNotEmpty) {
+          setState(() => _fabrics.add(toItem(found)));
+          continue;
+        }
+
+        // Fallback: GET /fabric/:id
+        try {
+          final res = await ApiClient.dio.get('/fabric/$fid');
+          if (res.statusCode == 200 && res.data is Map) {
+            final map = Map<String, dynamic>.from(res.data as Map);
+            setState(() => _fabrics.add(toItem(map)));
+          }
+        } catch (_) {
+          // Ignore failures quietly here; user can still add fabrics manually
+        }
+      }
+    } catch (_) {
+      // Best-effort; ignore
+    }
   }
 
   void _handleMaterialFocusChange() {
@@ -361,7 +487,7 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
     _templateDebounce = Timer(const Duration(milliseconds: _templateDebounceMs), () async {
       setState(() => _loadingTemplates = true);
       try {
-        final res = await ApiClient.dio.get('/templates/search', queryParameters: {
+  final res = await ApiClient.dio.get('/gabarit/search', queryParameters: {
           'q': q,
         });
         if (!mounted) return;
@@ -433,6 +559,73 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   _hideMaterialOverlay();
   }
 
+  // Handle captured or picked gabarit: upload, fetch full info, then open ProjectDetails
+
+  Future<void> _handleCapturedGabarit(String imagePath) async {
+    if (!mounted) return;
+    setState(() {
+      _uploadingTemplate = true;
+      _uploadingMessage = 'Envoi du gabarit...';
+    });
+  final svc = context.read<TemplatesService>();
+    final name = _templateController.text.trim().isNotEmpty ? _templateController.text.trim() : null;
+    final uploaded = await svc.uploadGabaritPhoto(imagePath, name: name);
+    if (uploaded == null || uploaded['id'] == null) {
+      if (!mounted) return;
+      setState(() => _uploadingTemplate = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur lors de l\'upload du gabarit.')),
+      );
+      return;
+    }
+    final id = uploaded['id'].toString();
+    if (mounted) {
+      setState(() => _uploadingMessage = 'Récupération des informations...');
+    }
+  // Immediately process and cache result
+  final fullInfo = await svc.fetchGabaritFullInfo(id);
+    if (fullInfo == null) {
+      if (!mounted) return;
+      setState(() => _uploadingTemplate = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur lors de la récupération du gabarit.')),
+      );
+      return;
+    }
+    // Compute processed image absolute URL for card
+    String processedAbs = '';
+    final gab = fullInfo['gabarit'];
+    if (gab is Map) {
+      final pi = gab['processedImage'] as String?;
+      if (pi != null) processedAbs = svc.absoluteImageUrl(pi);
+    }
+    // Do not navigate now. The details screen will read cached outlines.
+
+  // Derive UI fields from upload/process payload to avoid extra GET here
+  final itemName = (uploaded['name']?.toString() ?? name ?? 'Gabarit');
+  final created = DateTime.tryParse((uploaded['createdAt'] ?? '').toString());
+  final iconAbs = svc.absoluteImageUrl((uploaded['iconPath'] ?? uploaded['filePath'])?.toString());
+  if (mounted) {
+      setState(() {
+        // Enforce single template: replace existing if any
+        final newItem = GabaritItem(
+          id: id,
+          name: itemName,
+          iconPath: iconAbs,
+          processedImagePath: processedAbs.isNotEmpty ? processedAbs : null,
+          createdAt: created,
+        );
+        if (_gabarits.isEmpty) {
+          _gabarits.add(newItem);
+        } else {
+          _gabarits[0] = newItem;
+        }
+        _uploadingTemplate = false;
+      });
+    }
+    // Do not navigate automatically; open details when user taps the template card
+  }
+
   Future<void> _openCamera({required String type}) async {
     // Check camera permission
     final cameraStatus = await Permission.camera.request();
@@ -447,15 +640,19 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               onImageCaptured: (imagePath) async {
                 if (type == 'fabric') {
                   capturedPath = imagePath; // handle after route pops
-                } else {
-                  // Handle template if needed
+                } else if (type == 'template') {
+                  capturedPath = imagePath;
                 }
               },
             ),
           ),
         );
-        if (capturedPath != null && mounted && type == 'fabric') {
-          await _handleCapturedFabric(capturedPath!);
+        if (capturedPath != null && mounted) {
+          if (type == 'fabric') {
+            await _handleCapturedFabric(capturedPath!);
+          } else if (type == 'template') {
+            await _handleCapturedGabarit(capturedPath!);
+          }
         }
       }
     } else {
@@ -482,8 +679,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
       if (image != null && mounted) {
         if (type == 'fabric') {
           await _handleCapturedFabric(image.path);
-        } else {
-          // Handle template if needed
+        } else if (type == 'template') {
+          await _handleCapturedGabarit(image.path);
         }
       }
     } catch (e) {
@@ -833,9 +1030,11 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
             children: [
               Expanded(
                 child: SingleChildScrollView(
@@ -845,10 +1044,70 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                       const SizedBox(height: 8),
                       
                       // Identification field
-                      _buildInputField(
-                        controller: _identificationController,
-                        label: 'Identification',
-                        placeholder: 'Votre projet (ex : veste coupe-vent)',
+                      // Identification + rename button (if a gabarit is loaded)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _buildInputField(
+                              controller: _identificationController,
+                              label: 'Identification',
+                              placeholder: 'Votre projet (ex : veste coupe-vent)',
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (_gabarits.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 22),
+                              child: SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: ElevatedButton(
+                                  onPressed: _renaming ? null : () async {
+                                    if (_gabarits.isEmpty) return;
+                                    final id = _gabarits.first.id;
+                                    final newName = _identificationController.text.trim();
+                                    if (newName.isEmpty) return;
+                                    setState(() { _renaming = true; _renameOk = null; });
+                                    final ok = await context.read<TemplatesService>().patchGabarit(id, { 'name': newName, 'title': newName });
+                                    if (!mounted) return;
+                                    if (ok) {
+                                      setState(() { _renameOk = true; _renaming = false; });
+                                      // Update local card immediately
+                                      setState(() { _gabarits[0] = GabaritItem(id: _gabarits.first.id, name: newName, iconPath: _gabarits.first.iconPath, processedImagePath: _gabarits.first.processedImagePath, createdAt: _gabarits.first.createdAt); });
+                                      await Future.delayed(const Duration(seconds: 1));
+                                      if (!mounted) return;
+                                      setState(() { _renameOk = null; });
+                                    } else {
+                                      setState(() { _renameOk = false; _renaming = false; });
+                                      await Future.delayed(const Duration(seconds: 1));
+                                      if (!mounted) return;
+                                      setState(() { _renameOk = null; });
+                                    }
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black87,
+                                    side: const BorderSide(color: Color(0xFF4A6CF7)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  child: () {
+                                    if (_renaming) {
+                                      return const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFF4A6CF7)));
+                                    }
+                                    if (_renameOk == true) {
+                                      return const Icon(Icons.check, color: Color(0xFF2E7D32));
+                                    }
+                                    if (_renameOk == false) {
+                                      return const Icon(Icons.close, color: Colors.red);
+                                    }
+                                    return const Icon(Icons.drive_file_rename_outline, color: Color(0xFF4A6CF7));
+                                  }(),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                       
                       const SizedBox(height: 24),
@@ -1004,73 +1263,127 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                         const SizedBox(height: 8),
                       ],
 
+                      // Single template preview section (below fabrics)
+                      if (_gabarits.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Gabarit du projet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Builder(builder: (context) {
+                          final g = _gabarits.first;
+                          final absImage = (g.processedImagePath != null && g.processedImagePath!.isNotEmpty)
+                              ? g.processedImagePath!
+                              : (g.iconPath.isNotEmpty ? g.iconPath : '');
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(12),
+                              leading: _FabricThumb(path: absImage.isNotEmpty ? absImage : g.iconPath, size: 56),
+                              title: Text(g.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: (g.createdAt != null)
+                                  ? Text('Créé le: ${g.createdAt!.day.toString().padLeft(2, '0')}/${g.createdAt!.month.toString().padLeft(2, '0')}/${g.createdAt!.year}')
+                                  : const Text(''),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  setState(() {
+                                    _gabarits.clear();
+                                  });
+                                },
+                              ),
+                              onTap: () async {
+                                if (absImage.isEmpty) return;
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ProjectDetailsScreen(
+                                      imageUrl: absImage,
+                                      gabaritId: g.id,
+                                      avoidProcessOnInit: true,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        }),
+                      ],
+
                       
                       const SizedBox(height: 24),
                       
-                      // Template search + plus button (same width as Tissu)
-                      Text(
-                        'Gabarit',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black87,
+                      if (_gabarits.isEmpty) ...[
+                        // Template search + plus button (only when none selected)
+                        Text(
+                          'Gabarit',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black87,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FractionallySizedBox(
-                              widthFactor: 0.92,
-                              child: CompositedTransformTarget(
-                                link: _templateLink,
-                                child: Container(
-                                  key: _templateFieldKey,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey[300]!),
-                                  ),
-                                  child: TextField(
-                                    controller: _templateController,
-                                    focusNode: _templateFocus,
-                                    onChanged: _onTemplateChanged,
-                                    decoration: InputDecoration(
-                                      hintText: 'Nom du gabarit',
-                                      hintStyle: TextStyle(
-                                        color: Colors.grey[400],
-                                        fontSize: 16,
-                                      ),
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 16,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: FractionallySizedBox(
+                                widthFactor: 0.92,
+                                child: CompositedTransformTarget(
+                                  link: _templateLink,
+                                  child: Container(
+                                    key: _templateFieldKey,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.grey[300]!),
+                                    ),
+                                    child: TextField(
+                                      controller: _templateController,
+                                      focusNode: _templateFocus,
+                                      onChanged: _onTemplateChanged,
+                                      decoration: InputDecoration(
+                                        hintText: 'Nom du gabarit',
+                                        hintStyle: TextStyle(
+                                          color: Colors.grey[400],
+                                          fontSize: 16,
+                                        ),
+                                        border: InputBorder.none,
+                                        contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 16,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () => _showImageSourceDialog(
-                              type: 'template',
-                              title: 'Identification et Préparation\ndes Gabarits',
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4A4E69),
-                                borderRadius: BorderRadius.circular(12),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () => _showImageSourceDialog(
+                                type: 'template',
+                                title: 'Identification et Préparation\ndes Gabarits',
                               ),
-                              child: const Icon(Icons.add, color: Colors.white),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4A4E69),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.add, color: Colors.white),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1081,21 +1394,55 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                 width: double.infinity,
                 margin: const EdgeInsets.only(top: 16),
                 child: ElevatedButton(
-                  onPressed: () {
-                    // Handle form validation and submission
-                    debugPrint('Project created:');
-                    debugPrint('- Identification: ${_identificationController.text}');
-                    debugPrint('- Fabrics:');
-                    for (final mat in _fabrics) {
-                      debugPrint('  - ${mat.name} (${mat.imagePath})');
+                  onPressed: () async {
+                    // Ensure we have a gabarit id and fabrics are all assigned (best-effort check)
+                    if (_gabarits.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Veuillez sélectionner un gabarit d\'abord.')),
+                      );
+                      return;
                     }
-                    debugPrint('- Template: ${_templateController.text}');
-                    
-                    // You can add your project creation logic here
-                    Navigator.pop(context);
+
+                    // Ask for number of clothes
+                    final number = await showDialog<int>(
+                      context: context,
+                      barrierDismissible: true,
+                      builder: (_) => const QuantityInputSheet(),
+                    );
+                    if (number == null || number <= 0) return;
+
+                    // Call backend /gabarit/calculer/:id
+                    final gabId = _gabarits.first.id;
+                    final svc = context.read<TemplatesService>();
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const Center(child: CircularProgressIndicator()),
+                    );
+                    final result = await svc.calculateRequiredQuantities(gabaritId: gabId, number: number);
+                    if (context.mounted) Navigator.of(context).pop(); // close loader
+                    if (result == null || result.isEmpty) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Échec du calcul.')),
+                      );
+                      return;
+                    }
+
+                    if (!mounted) return;
+                    // Navigate to result screen
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => QuantityResultScreen(
+                          gabaritId: gabId,
+                          quantities: result,
+                          count: number,
+                        ),
+                      ),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[400],
+                    backgroundColor: const Color(0xFF4A6CF7),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -1114,6 +1461,27 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
               ),
             ],
           ),
+            ),
+            if (_uploadingTemplate)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 12),
+                        Text(
+                          _uploadingMessage,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

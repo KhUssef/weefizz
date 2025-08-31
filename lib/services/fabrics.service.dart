@@ -144,6 +144,17 @@ class FabricsService extends ChangeNotifier {
           norm['homeImageUrl'] = absOrig.isNotEmpty ? absOrig : _absoluteImageUrl(orig);
           list.add(norm);
         }
+        // Prefetch Home images to local cache to avoid re-downloading and enable offline render
+        for (final m in list) {
+          final String? homeUrl = m['homeImageUrl'] as String?;
+          if (homeUrl == null || homeUrl.isEmpty) continue;
+          try {
+            final file = await DefaultCacheManager().getSingleFile(homeUrl);
+            m['homeCachedImagePath'] = file.path;
+          } catch (e) {
+            _logger.w('Failed to cache home image for ${m['id']}: $e');
+          }
+        }
         // Apply favorite overrides
         for (final m in list) {
           final id = m['id'] as String?;
@@ -369,9 +380,9 @@ class FabricsService extends ChangeNotifier {
   final list = List<Map<String, dynamic>>.from(response.data).map(_normalizeFabric).toList();
         await _prefetchAndCacheImages(list);
 
-        // Preserve previous items if refresh returns empty to avoid wiping list
+        // Preserve previous items; replace only on first page (page 0). Append otherwise.
         List<Map<String, dynamic>> merged;
-        if (page == 1) {
+        if (page == 0) {
           merged = list.isEmpty ? _fabrics : list;
         } else {
           merged = [..._fabrics, ...list];

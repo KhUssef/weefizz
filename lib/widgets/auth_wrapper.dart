@@ -10,7 +10,7 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AuthService>(
       builder: (context, authService, child) {
-        if (authService.connected) {
+  if (authService.connected) {
           return MainNavigationScreen.shell();
         } else {
           return const LoginPage();

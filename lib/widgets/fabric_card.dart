@@ -7,6 +7,7 @@ class FabricCard extends StatelessWidget {
   final String? image;
   final bool isFavorite;
   final VoidCallback? onFavoritePressed;
+  final VoidCallback? onImagePressed;
 
   const FabricCard({
     super.key,
@@ -14,7 +15,8 @@ class FabricCard extends StatelessWidget {
     this.date,
     this.image,
     this.isFavorite = false,
-    this.onFavoritePressed,
+  this.onFavoritePressed,
+  this.onImagePressed,
   });
 
   ImageProvider? _buildImageProvider(String path) {
@@ -60,7 +62,10 @@ class FabricCard extends StatelessWidget {
         children: [
           Stack(
             children: [
-              Container(
+              GestureDetector(
+                onTap: onImagePressed,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
                 height: 120,
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -80,6 +85,7 @@ class FabricCard extends StatelessWidget {
                         size: 40,
                         color: Colors.grey[400],
                       ),
+                ),
               ),
               Positioned(
                 top: 8,

@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/auth.service.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   void _logout(BuildContext context) async {
-    await AuthService().logout();
+    await context.read<AuthService>().logout();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Déconnecté avec succès')),
     );
     
   }
   void _hey(BuildContext context) async {
-    final isValid = await AuthService().sayhey();
+    final isValid = await context.read<AuthService>().sayhey();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(isValid ? 'Token valide' : 'Token invalide')),
     );

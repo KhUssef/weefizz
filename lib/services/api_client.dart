@@ -11,16 +11,16 @@ class ApiClient {
   static void initialize() {
     // Main dio instance with interceptors
     dio = Dio(BaseOptions(
-      baseUrl: 'http://10.0.2.2:3000',
+      baseUrl: 'http://192.168.1.113:3000',
       connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 3),
+      receiveTimeout: const Duration(seconds: 5),
     ));
 
     // Separate dio instance for token refresh (no interceptors)
     _refreshDio = Dio(BaseOptions(
-      baseUrl: 'http://10.0.2.2:3000',
+      baseUrl: 'http://192.168.1.113:3000',
       connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 3),
+      receiveTimeout: const Duration(seconds: 5),
     ));
 
     dio.interceptors.add(InterceptorsWrapper(
@@ -93,9 +93,9 @@ class ApiClient {
       
       // Create a fresh dio instance if needed
       _refreshDio ??= Dio(BaseOptions(
-        baseUrl: 'http://10.0.2.2:3000',
+        baseUrl: 'http://192.168.1.113:3000',
         connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 3),
+        receiveTimeout: const Duration(seconds: 5),
       ));
       
       // Use the separate dio instance for token refresh

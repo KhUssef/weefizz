@@ -21,6 +21,7 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  late final PageController _pageController;
 
   late final List<Widget> _screens;
 
@@ -48,17 +49,29 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   ];
 
   void _onTabTapped(int index) {
+    if (index == _currentIndex) return;
     setState(() {
       _currentIndex = index;
     });
-  // Keep cached data when switching tabs; no auto-refetch here
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+    // Keep cached data when switching tabs; no auto-refetch here
   }
 
   void setIndex(int index) {
     if (!mounted) return;
+    if (index == _currentIndex) return;
     setState(() {
       _currentIndex = index;
     });
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _onAddPressed() {
@@ -74,8 +87,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pageController = PageController(initialPage: _currentIndex, keepPage: true);
     _screens = [
-      HomeScreen(onSelectTab: (i) => setState(() => _currentIndex = i)),
+      HomeScreen(onSelectTab: (i) => setIndex(i)),
       const TemplatesScreen(),
       const FabricsScreen(),
       const ProfileScreen(),
@@ -85,6 +99,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+  _pageController.dispose();
     super.dispose();
   }
 
@@ -101,8 +116,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: PageView(
+        controller: _pageController,
+        physics: const PageScrollPhysics(),
+        onPageChanged: (i) => setState(() => _currentIndex = i),
         children: _screens,
       ),
       bottomNavigationBar: Container(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:weefizz/services/auth.service.dart';
+import 'package:provider/provider.dart';
 import 'signup.dart';
 import 'main_navigation.dart';
 class LoginPage extends StatefulWidget {
@@ -14,7 +15,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _acceptTerms = false;
-  final AuthService authService = AuthService();
+  // Use the AuthService from Provider instead of creating a new instance
 
   @override
   void dispose() {
@@ -374,12 +375,13 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     try {
-      await authService.login(email, password);
+  final authService = context.read<AuthService>();
+  await authService.login(email, password);
 
       // Hide loading indicator
       if (mounted) Navigator.of(context).pop();
 
-      if (authService.connected) {
+  if (context.read<AuthService>().connected) {
         // Success - Show success message and navigate to home
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -398,8 +400,8 @@ class _LoginPageState extends State<LoginPage> {
         // Failed - Show specific error message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(authService.lastError ?? 'Échec de la connexion'),
+    SnackBar(
+      content: Text(context.read<AuthService>().lastError ?? 'Échec de la connexion'),
               backgroundColor: Colors.red,
             ),
           );
