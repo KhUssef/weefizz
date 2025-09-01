@@ -7,10 +7,13 @@ from PIL import Image
 import io
 import numpy as np
 import base64
+import tempfile
+import os
+import cv2
+from gabarit_detection.opencv import detect_external_boxes, Box  # Import the existing function and Box class
+from dataclasses import asdict  # Import asdict to convert Box instances to dictionaries
 
 # from textile_identification.densenet import predict_image_grid
-from gabarit_detection.opencv import process_image, process_image_with_gabarit_info  # Import our gabarit detection model
-
 app = FastAPI()
 
 
@@ -40,70 +43,92 @@ app = FastAPI()
 #     return JSONResponse(content={"results": results})
 
 
-@app.post("/process-gabarit")
-async def process_gabarit(file: UploadFile = File(...)):
-    """
-    Processes an image to detect gabarit parts and return the cleaned final image.
-    """
-    image_bytes = await file.read()
-    try:
-        result_bytes = process_image(image_bytes)
-        return Response(content=result_bytes, media_type="image/png")
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=400)
-
-
-@app.post("/gabarit-pieces-info")
-async def gabarit_pieces_info(file: UploadFile = File(...)):
-    """
-    Analyzes an image and returns detailed information about each gabarit piece.
-    """
-    image_bytes = await file.read()
-    try:
-        result = process_image_with_gabarit_info(image_bytes)
-        
-        return JSONResponse(content={
-            "gabarit_pieces": result["gabarit_pieces"],
-            "total_pieces": result["total_pieces"],
-            "image_dimensions": result["image_dimensions"]
-        })
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=400)
-
 
 @app.post("/gabarit-full")
 async def gabarit_full(file: UploadFile = File(...)):
     """
-    Processes an image and returns both the processed image and gabarit piece information.
+    Processes an image and returns both the segmented image (base64) and gabarit piece information.
     """
     image_bytes = await file.read()
+    
+    # Create a temporary file for the image
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+        temp_file.write(image_bytes)
+        temp_path = temp_file.name
+    
     try:
-        result = process_image_with_gabarit_info(image_bytes)
+        # Call the existing detect_external_boxes function
+        boxes, overlay, cleaned = detect_external_boxes(
+            temp_path, min_area=4000, closing=7, debug=False, force_invert=False
+        )
         
-        # Convert image bytes to base64 for JSON response
-        image_b64 = base64.b64encode(result["image_bytes"]).decode()
+        # Convert overlay to base64
+        success, encoded_img = cv2.imencode('.png', overlay)
+        if success:
+            image_b64 = base64.b64encode(encoded_img.tobytes()).decode()
+        else:
+            return JSONResponse(content={"error": "Failed to encode image"}, status_code=400)
+        
+        # Format boxes as gabarit_pieces
+        gabarit_pieces = [asdict(box) for box in boxes]
+        
+        # Get image dimensions from overlay
+        height, width = overlay.shape[:2]
+        image_dimensions = {"width": width, "height": height}
         
         return JSONResponse(content={
+            "message": "Gabarit segmentation and analysis successful",
             "processed_image": f"data:image/png;base64,{image_b64}",
-            "gabarit_pieces": result["gabarit_pieces"],
-            "total_pieces": result["total_pieces"],
-            "image_dimensions": result["image_dimensions"]
+            "gabarit_pieces": gabarit_pieces,
+            "total_pieces": len(gabarit_pieces),
+            "image_dimensions": image_dimensions,
+            "file_info": {
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "size_bytes": len(image_bytes)
+            },
+            "processing_info": {
+                "function_used": "detect_external_boxes",
+                "output_format": "segmented_image_with_pieces_info"
+            }
         })
+        
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=400)
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
-@app.get("/")
-async def root():
+@app.post("/gabarit-image")
+async def gabarit_image(file: UploadFile = File(...)):
     """
-    API documentation and available endpoints.
+    Processes an image and returns the segmented overlay image directly as PNG.
     """
-    return JSONResponse(content={
-        "message": "Gabarit Detection API",
-        "endpoints": {
-            "/process-gabarit": "POST - Upload image, get processed image (PNG)",
-            "/gabarit-pieces-info": "POST - Upload image, get gabarit pieces information (JSON)",
-            "/gabarit-full": "POST - Upload image, get both processed image and pieces info (JSON)",
-            "/docs": "GET - Interactive API documentation"
-        }
-    })
+    image_bytes = await file.read()
+    
+    # Create a temporary file for the image
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+        temp_file.write(image_bytes)
+        temp_path = temp_file.name
+    
+    try:
+        # Call the existing detect_external_boxes function
+        boxes, overlay, cleaned = detect_external_boxes(
+            temp_path, min_area=4000, closing=7, debug=False, force_invert=False
+        )
+        
+        # Encode overlay to PNG bytes
+        success, encoded_img = cv2.imencode('.png', overlay)
+        if success:
+            return Response(content=encoded_img.tobytes(), media_type="image/png")
+        else:
+            return JSONResponse(content={"error": "Failed to encode image"}, status_code=400)
+        
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=400)
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)

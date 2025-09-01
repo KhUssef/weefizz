@@ -1,220 +1,244 @@
-# model.py
+#!/usr/bin/env python3
+"""
+Detect outer garment pattern piece contours in a sewing pattern image and
+produce bounding boxes, cropped masks, and an overlay visualization.
+
+Approach
+- Load as grayscale and color.
+- Denoise slightly and enhance edges.
+- Adaptive threshold to binary (works on dark lines on light or vice versa).
+- Morphological closing to connect contour gaps.
+- Remove thin internal graphics like grainline arrows by eliminating long thin components and by contour filtering on solidity.
+- Keep only external contours via hierarchy (no parents) and size/area filters.
+- Output: boxes.json, overlay.png, and per-piece crop masks.
+
+Usage:
+  python detect_pattern_bounds.py --image image.png
+
+Optional flags:
+  --min-area 4000           Minimum contour area to keep (pixels)
+  --debug                   Save intermediate images
+  --invert                  Force invert binary (if pieces are light on dark)
+  --blur 3                  Gaussian blur kernel size (odd)
+  --closing 7               Morph closing kernel size
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from dataclasses import dataclass, asdict
+from typing import List, Tuple
+
 import cv2
 import numpy as np
-import pytesseract
-from typing import Dict, Any
-
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-def is_contour_really_closed(cnt, threshold=15):
-    return cv2.norm(cnt[0][0], cnt[-1][0]) < threshold
-
-def detect_and_close_edges(gray):
-    edges = cv2.Canny(gray, 50, 150)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-    closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-    return closed_edges
-
-def is_shape_solid(cnt):
-    area = cv2.contourArea(cnt)
-    hull = cv2.convexHull(cnt)
-    hull_area = cv2.contourArea(hull)
-    if hull_area == 0:
-        return False
-    solidity = float(area) / hull_area
-    return solidity > 0.8
 
 
-def detect_closed_shapes(closed_edges, image, gray):
-    # Fix for different OpenCV versions
-    contours_result = cv2.findContours(closed_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    if len(contours_result) == 3:
-        _, contours, _ = contours_result
-    else:
-        contours, _ = contours_result
-    
-    kept_contours = []
-    gabarit_pieces = []
-    
-    piece_id = 1
-    for cnt in contours:
-        if cv2.contourArea(cnt) < 1000:
+@dataclass
+class Box:
+    x: int
+    y: int
+    w: int
+    h: int
+    area: int
+    index: int = 0  # 1-based piece number for labeling
+    width: int = 0  # explicit duplicate of w for clarity in JSON
+    height: int = 0 # explicit duplicate of h for clarity in JSON
+    perimeter: List[Tuple[int, int]] = None  # List of (x, y) coordinates for the perimeter pixels
+
+
+def _adaptive_binarize(gray: np.ndarray, force_invert: bool = False) -> np.ndarray:
+    # Normalize and blur to suppress noise
+    blur = cv2.GaussianBlur(gray, (3, 3), 0)
+    # Adaptive threshold handles uneven illumination
+    th = cv2.adaptiveThreshold(
+        blur,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV if not force_invert else cv2.THRESH_BINARY,
+        35,
+        8,
+    )
+    return th
+
+
+def _morph_connect(bin_img: np.ndarray, closing_size: int) -> np.ndarray:
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (closing_size, closing_size))
+    closed = cv2.morphologyEx(bin_img, cv2.MORPH_CLOSE, kernel, iterations=1)
+    # Remove very small specks
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel_open, iterations=1)
+    return opened
+
+
+def _remove_thin_arrows(bin_img: np.ndarray) -> np.ndarray:
+    """Remove long thin elements (e.g., arrows) using morphological thinning criteria.
+
+    Strategy:
+    - Erode with a 1x7 and 7x1 kernel and reconstruct via hit-miss to suppress
+      stroke-like elements.
+    - Filter connected components by aspect ratio and solidity.
+    """
+    img = bin_img.copy()
+
+    # Component analysis to drop thin elongated components
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(img, 8)
+    kept = np.zeros_like(img)
+
+    for i in range(1, num_labels):  # skip background
+        x, y, w, h, area = stats[i]
+        if area < 150:  # noise
             continue
-        if not is_contour_really_closed(cnt, threshold=10):
+        aspect = max(w, h) / (min(w, h) + 1e-5)
+        # Very elongated thin shapes (arrows/lines) likely have high aspect and small thickness
+        if aspect > 10 and area < 0.02 * img.size:
+            continue  # drop
+        component_mask = (labels == i).astype(np.uint8) * 255
+        # Compute solidity: area / convex hull area
+        contours, _ = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
             continue
-        if not is_shape_solid(cnt):
+        cnt = contours[0]
+        hull = cv2.convexHull(cnt)
+        hull_area = cv2.contourArea(hull)
+        contour_area = cv2.contourArea(cnt)
+        solidity = contour_area / (hull_area + 1e-5)
+        if aspect > 6 and solidity < 0.6:
+            # thin with cutouts -> likely arrow shaft + head
             continue
-        
-        kept_contours.append(cnt)
-        piece_info = extract_gabarit_piece_info(cnt, piece_id)
-        gabarit_pieces.append(piece_info)
-        piece_id += 1
-    
-    outline_image = image.copy()
-    cv2.drawContours(outline_image, kept_contours, -1, (0, 255, 0), 2)
-    
-    # Add piece IDs as labels on the image
-    for piece in gabarit_pieces:
-        cx, cy = piece["centroid"]["x"], piece["centroid"]["y"]
-        cv2.putText(outline_image, f"P{piece['piece_id']}", (cx-15, cy), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-    
-    return kept_contours, outline_image, gabarit_pieces
+        kept[labels == i] = 255
 
-def find_strict_small_convoluted_candidates(gray, img_shape):
-    img_h, img_w = img_shape[:2]
-    thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)[1]
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    dilated = cv2.dilate(thresh, kernel, iterations=1)
-    
-    # Fix for different OpenCV versions
-    contours_result = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if len(contours_result) == 3:
-        _, contours, _ = contours_result
-    else:
-        contours, _ = contours_result
-    
-    candidate_boxes = []
-    for cnt in contours:
+    return kept
+
+
+def detect_external_boxes(
+    image_path: str,
+    min_area: int = 4000,
+    closing: int = 7,
+    debug: bool = False,
+    force_invert: bool = False,
+):
+    color = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    if color is None:
+        raise FileNotFoundError(f"Cannot read image: {image_path}")
+    gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+
+    bin_img = _adaptive_binarize(gray, force_invert)
+    connected = _morph_connect(bin_img, closing)
+    cleaned = _remove_thin_arrows(connected)
+
+    # Find external contours with hierarchy and filter by area
+    contours, hierarchy = cv2.findContours(cleaned, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+
+    boxes: List[Box] = []
+    external_indices: List[int] = []
+    if hierarchy is not None:
+        hierarchy = hierarchy[0]
+        for i, h in enumerate(hierarchy):
+            parent = h[3]
+            if parent == -1:  # external
+                area = int(cv2.contourArea(contours[i]))
+                if area >= min_area:
+                    external_indices.append(i)
+
+    # Fallback if hierarchy is missing
+    if not external_indices:
+        for i, cnt in enumerate(contours):
+            area = int(cv2.contourArea(cnt))
+            if area >= min_area:
+                external_indices.append(i)
+
+    overlay = color.copy()
+    vis = color.copy()
+    tmp: List[Tuple[int, np.ndarray, Tuple[int, int, int, int], int]] = []
+    for idx in external_indices:
+        cnt = contours[idx]
         x, y, w, h = cv2.boundingRect(cnt)
-        area = cv2.contourArea(cnt)
-        peri = cv2.arcLength(cnt, True)
-        if 20 < area < 8000:
-            w_ratio = w / img_w
-            h_ratio = h / img_h
-            if w_ratio < 0.20 and h_ratio < 0.20:
-                if peri / (area + 1) > 0.05:
-                    candidate_boxes.append((x, y, w, h))
-    return candidate_boxes
+        area = int(cv2.contourArea(cnt))
+        tmp.append((idx, cnt, (x, y, w, h), area))
 
-def extract_gabarit_piece_info(cnt, piece_id: int) -> Dict[str, Any]:
-    """Extract detailed information about a gabarit piece contour"""
-    # Basic properties
-    area = cv2.contourArea(cnt)
-    perimeter = cv2.arcLength(cnt, True)
-    
-    # Bounding rectangle
-    x, y, w, h = cv2.boundingRect(cnt)
-    
-    # Centroid
-    M = cv2.moments(cnt)
-    if M["m00"] != 0:
-        cx = int(M["m10"] / M["m00"])
-        cy = int(M["m01"] / M["m00"])
-    else:
-        cx, cy = x + w//2, y + h//2
-    
-    # Convex hull and solidity
-    hull = cv2.convexHull(cnt)
-    hull_area = cv2.contourArea(hull)
-    solidity = float(area) / hull_area if hull_area > 0 else 0
-    
-    # Aspect ratio
-    aspect_ratio = float(w) / h if h > 0 else 0
-    
-    # Approximate polygon
-    epsilon = 0.02 * perimeter
-    approx = cv2.approxPolyDP(cnt, epsilon, True)
-    
-    # Convert contour points to list for JSON serialization
-    contour_points = cnt.reshape(-1, 2).tolist()
-    hull_points = hull.reshape(-1, 2).tolist()
-    approx_points = approx.reshape(-1, 2).tolist()
-    
-    return {
-        "piece_id": piece_id,
-        "area": float(area),
-        "perimeter": float(perimeter),
-        "bounding_box": {
-            "x": int(x),
-            "y": int(y),
-            "width": int(w),
-            "height": int(h)
-        },
-        "centroid": {
-            "x": int(cx),
-            "y": int(cy)
-        },
-        "solidity": float(solidity),
-        "aspect_ratio": float(aspect_ratio),
-        "vertices_count": len(approx_points),
-        "contour_points": contour_points,
-        "hull_points": hull_points,
-        "approximate_polygon": approx_points
-    }
-def validate_text_regions(gray, candidate_boxes):
-    valid_texts = []
-    img_h, img_w = gray.shape
-    for (x, y, w, h) in candidate_boxes:
-        pad = 5
-        x1 = max(0, x - pad)
-        y1 = max(0, y - pad)
-        x2 = min(img_w, x + w + pad)
-        y2 = min(img_h, y + h + pad)
-        roi = gray[y1:y2, x1:x2]
-        config = '--oem 3 --psm 6 outputbase digits'
-        text = pytesseract.image_to_string(roi, config=config).strip()
-        if len(text) > 0 and any(c.isdigit() for c in text):
-            valid_texts.append((x1, y1, x2 - x1, y2 - y1, text))
-    return valid_texts
+    # Sort pieces top-to-bottom, then left-to-right for stable numbering
+    tmp.sort(key=lambda t: (t[2][1], t[2][0]))
 
-def create_mask(img_shape, text_boxes):
-    mask = np.zeros(img_shape[:2], dtype=np.uint8)
-    for (x, y, w, h, _) in text_boxes:
-        cv2.rectangle(mask, (x, y), (x+w, y+h), 255, -1)
-    return mask
+    for i, (_, cnt, (x, y, w, h), area) in enumerate(tmp, start=1):
+        perimeter = [(int(p[0][0]), int(p[0][1])) for p in cnt]
+        box = Box(x=x, y=y, w=w, h=h, area=area, index=i, width=w, height=h, perimeter=perimeter)
+        boxes.append(box)
+        # Green contour
+        cv2.drawContours(overlay, [cnt], -1, (0, 255, 0), 2)
+        # Red bounding rectangle
+        cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        # Number label near top-left corner of the box with slight padding
+        label = str(i)
+        org = (x + 10, max(0, y - 10))
+        # Draw a contrasting background for legibility
+        cv2.putText(overlay, label, org, cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(overlay, label, org, cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 2, cv2.LINE_AA)
 
-def find_strict_small_convoluted_candidates(gray, img_shape):
-    img_h, img_w = img_shape[:2]
-    thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)[1]
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    dilated = cv2.dilate(thresh, kernel, iterations=1)
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidate_boxes = []
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        area = cv2.contourArea(cnt)
-        peri = cv2.arcLength(cnt, True)
-        if 20 < area < 8000:
-            w_ratio = w / img_w
-            h_ratio = h / img_h
-            if w_ratio < 0.20 and h_ratio < 0.20:
-                if peri / (area + 1) > 0.05:
-                    candidate_boxes.append((x, y, w, h))
-    return candidate_boxes
+    return boxes, overlay, cleaned
 
-def remove_elements(image, mask):
-    result = image.copy()
-    green_color = (0, 128, 0)
-    result[mask == 255] = green_color
-    return result
 
-def process_image_with_gabarit_info(image_bytes):
-    """Process image and return both the final image and gabarit piece information"""
-    # Convert bytes to OpenCV image
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("Invalid image data.")
+def save_results(
+    image_path: str,
+    boxes: List[Box],
+    overlay: np.ndarray,
+    cleaned: np.ndarray,
+    out_dir: str,
+    debug: bool,
+):
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(image_path))[0]
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    closed_edges = detect_and_close_edges(gray)
-    kept_contours, outline_image, gabarit_pieces = detect_closed_shapes(closed_edges, image, gray)
-    candidate_boxes = find_strict_small_convoluted_candidates(gray, image.shape)
-    text_boxes = validate_text_regions(gray, candidate_boxes)
-    mask = create_mask(image.shape, text_boxes)
-    final_image = remove_elements(outline_image, mask)
+    # Overlay
+    overlay_path = os.path.join(out_dir, f"{base}_overlay.png")
+    cv2.imwrite(overlay_path, overlay)
 
-    # Encode result to bytes
-    _, img_encoded = cv2.imencode('.png', final_image)
-    return {
-        "image_bytes": img_encoded.tobytes(),
-        "gabarit_pieces": gabarit_pieces,
-        "total_pieces": len(gabarit_pieces),
-        "image_dimensions": {"width": image.shape[1], "height": image.shape[0]}
-    }
+    # Boxes JSON
+    boxes_path = os.path.join(out_dir, f"{base}_boxes.json")
+    with open(boxes_path, "w", encoding="utf-8") as f:
+        json.dump([asdict(b) for b in boxes], f, indent=2)
 
-def process_image(image_bytes):
-    """Original function - returns only the processed image bytes"""
-    result = process_image_with_gabarit_info(image_bytes)
-    return result["image_bytes"]
+    # Debug cleaned mask
+    if debug:
+        cleaned_path = os.path.join(out_dir, f"{base}_cleaned.png")
+        cv2.imwrite(cleaned_path, cleaned)
+
+    # Save individual crops
+    color = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    for i, b in enumerate(boxes):
+        crop = color[b.y : b.y + b.h, b.x : b.x + b.w]
+        cv2.imwrite(os.path.join(out_dir, f"{base}_piece_{i+1}.png"), crop)
+
+    return overlay_path, boxes_path
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Detect pattern piece bounds")
+    parser.add_argument("--image", required=True, help="Path to input image")
+    parser.add_argument("--min-area", type=int, default=4000)
+    parser.add_argument("--closing", type=int, default=7)
+    parser.add_argument("--invert", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--out", default="outputs")
+    args = parser.parse_args()
+
+    boxes, overlay, cleaned = detect_external_boxes(
+        args.image, min_area=args.min_area, closing=args.closing, debug=args.debug, force_invert=args.invert
+    )
+
+    overlay_path, boxes_path = save_results(
+        args.image, boxes, overlay, cleaned, out_dir=args.out, debug=args.debug
+    )
+
+    print(f"Saved overlay to: {overlay_path}")
+    print(f"Saved boxes to:   {boxes_path}")
+    print("Detected boxes:")
+    for i, b in enumerate(boxes, 1):
+        print(f"  {i}: x={b.x} y={b.y} w={b.w} h={b.h} area={b.area}")
+
+
+if __name__ == "__main__":
+    main()
+
+
