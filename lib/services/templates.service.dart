@@ -33,7 +33,12 @@ class TemplatesService extends ChangeNotifier {
     _processedCache[id] = data;
   }
 
-  // Update a gabarit's metadata with image via multipart: PUT /gabarit/:id/with-image
+  // Remove a specific gabarit's processed info from cache (force refetch on next load)
+  void removeProcessedInfo(String id) {
+    _processedCache.remove(id);
+  }
+
+  // Update a gabarit's metadata with image via multipart: PATCH /gabarit/:id/with-image
   Future<bool> updateGabaritWithImage(String gabaritId, Map<String, dynamic> fields, String imageFilePath) async {
     try {
       final effId = _effectiveId(gabaritId);
@@ -48,9 +53,9 @@ class TemplatesService extends ChangeNotifier {
       });
       try {
         final hdr = await ApiClient.getAuthHeaders();
-        _logger.i('[GABARIT UPDATE WITH IMAGE] PUT ${ApiClient.dio.options.baseUrl}$path\nHeaders: \\${hdr.isEmpty ? '<none>' : hdr}\nFields: \\${map.keys.toList()}');
+        _logger.i('[GABARIT UPDATE WITH IMAGE] PATCH ${ApiClient.dio.options.baseUrl}$path\nHeaders: \\${hdr.isEmpty ? '<none>' : hdr}\nFields: \\${map.keys.toList()}');
       } catch (_) {}
-      final res = await ApiClient.dio.put(path, data: form);
+      final res = await ApiClient.dio.patch(path, data: form);
       _logger.i('[GABARIT UPDATE WITH IMAGE] <- ${res.statusCode} ${res.requestOptions.method} ${res.requestOptions.uri}');
       return res.statusCode == 200 || res.statusCode == 201 || res.statusCode == 204;
     } on DioException catch (e) {

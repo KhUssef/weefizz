@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'package:provider/provider.dart';
 import '../services/fabrics.service.dart';
 import 'fabric_editor_sheet.dart';
+import 'protected_image.dart';
 
 class FeaturedFabricsStrip extends StatefulWidget {
   const FeaturedFabricsStrip({super.key});
@@ -93,34 +93,11 @@ class _FeaturedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget buildImage(String path) {
-      final lower = path.toLowerCase();
-      final isUrl = lower.startsWith('http://') || lower.startsWith('https://');
-      final isFileScheme = lower.startsWith('file://');
-      if (isUrl) {
-        return Image.network(
-          path,
+    Widget buildImage(String path) => ProtectedImage(
+          path: path,
           fit: BoxFit.cover,
-          alignment: Alignment.center,
-          filterQuality: FilterQuality.high,
-          loadingBuilder: (context, child, progress) => progress == null
-              ? child
-              : Container(color: Colors.grey[200]),
-          errorBuilder: (context, error, stack) => Container(color: Colors.grey[300], child: const Icon(Icons.broken_image)),
+          placeholder: const Icon(Icons.broken_image, color: Colors.grey),
         );
-      }
-      if (isFileScheme) {
-        return Image.file(File(Uri.parse(path).toFilePath()), fit: BoxFit.cover);
-      }
-      // Treat everything else as a file system path
-      return Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        filterQuality: FilterQuality.high,
-        errorBuilder: (context, error, stack) => Container(color: Colors.grey[300], child: const Icon(Icons.broken_image)),
-      );
-    }
     return AspectRatio(
       aspectRatio: 16/9,
       child: GestureDetector(

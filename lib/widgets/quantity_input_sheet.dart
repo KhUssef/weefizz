@@ -40,55 +40,62 @@ class _QuantityInputSheetState extends State<QuantityInputSheet> {
       elevation: 0,
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(width: 40),
-                const Text(
-                  'Estimation de la quantité nécessaire',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                Row(
+                  children: [
+                    const SizedBox(width: 40),
+                    const Expanded(
+                      child: Text(
+                        'Estimation de la quantité nécessaire',
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    )
+                  ],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                )
+                const SizedBox(height: 12),
+                const Text('Nombre de pièces'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _ctrl,
+                  onChanged: _onChanged,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    hintText: '(ex : 350)',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _value == null || _value == 0
+                      ? null
+                      : () => Navigator.pop<int>(context, _value),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: themeBlue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Calcul automatique', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Text('Nombre de pièces'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _ctrl,
-              onChanged: _onChanged,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: '(ex : 350)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _value == null || _value == 0
-                  ? null
-                  : () => Navigator.pop<int>(context, _value),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: themeBlue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
-              ),
-              child: const Text('Calcul automatique', style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'protected_image.dart';
 
 class TemplateCard extends StatelessWidget {
   final String title;
@@ -18,15 +18,7 @@ class TemplateCard extends StatelessWidget {
   this.onImagePressed,
   });
 
-  ImageProvider? _buildImageProvider(String path) {
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      return NetworkImage(path);
-    }
-    if (path.startsWith('/')) {
-      return FileImage(File(path));
-    }
-    return AssetImage(path);
-  }
+  // Removed legacy image provider; using ProtectedImage for auth/relative URLs
 
   @override
   Widget build(BuildContext context) {
@@ -72,12 +64,13 @@ class TemplateCard extends StatelessWidget {
               color: Colors.grey[100],
             ),
             child: (icon ?? image) != null
-                ? ClipRRect(
+                ? ProtectedImage(
+                    path: (icon ?? image)!,
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
                     borderRadius: BorderRadius.circular(8),
-                    child: Image(
-                      image: _buildImageProvider((icon ?? image)!)!,
-                      fit: BoxFit.cover,
-                    ),
+                    placeholder: const Icon(Icons.description, size: 28, color: Colors.grey),
                   )
                 : Icon(
                     Icons.description,

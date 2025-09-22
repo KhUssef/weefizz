@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiClient {
   static late Dio dio;
@@ -9,18 +10,23 @@ class ApiClient {
   static bool _isRefreshing = false; // Prevent multiple simultaneous refresh attempts
 
   static void initialize() {
+    // Load config from .env with sensible defaults
+    final String baseUrl = dotenv.env['API_BASE_URL']?.trim() ?? 'http://192.168.1.113:3000';
+    final int connectMs = int.tryParse((dotenv.env['CONNECT_TIMEOUT_MS'] ?? '').trim()).orNull ?? 10000;
+    final int receiveMs = int.tryParse((dotenv.env['RECEIVE_TIMEOUT_MS'] ?? '').trim()).orNull ?? 10000;
+
     // Main dio instance with interceptors
     dio = Dio(BaseOptions(
-      baseUrl: 'http://192.168.1.113:3000',
-      connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 5),
+      baseUrl: baseUrl,
+      connectTimeout: Duration(milliseconds: connectMs),
+      receiveTimeout: Duration(milliseconds: receiveMs),
     ));
 
     // Separate dio instance for token refresh (no interceptors)
     _refreshDio = Dio(BaseOptions(
-      baseUrl: 'http://192.168.1.113:3000',
-      connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 5),
+      baseUrl: baseUrl,
+      connectTimeout: Duration(milliseconds: connectMs),
+      receiveTimeout: Duration(milliseconds: receiveMs),
     ));
 
     dio.interceptors.add(InterceptorsWrapper(
@@ -91,11 +97,11 @@ class ApiClient {
 
       debugPrint('Attempting to refresh token...');
       
-      // Create a fresh dio instance if needed
+      // Create a fresh dio instance if needed, using current env config
       _refreshDio ??= Dio(BaseOptions(
-        baseUrl: 'http://192.168.1.113:3000',
-        connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 5),
+        baseUrl: dotenv.env['API_BASE_URL']?.trim() ?? 'http://192.168.1.113:3000',
+        connectTimeout: Duration(milliseconds: int.tryParse((dotenv.env['CONNECT_TIMEOUT_MS'] ?? '').trim()).orNull ?? 10000),
+        receiveTimeout: Duration(milliseconds: int.tryParse((dotenv.env['RECEIVE_TIMEOUT_MS'] ?? '').trim()).orNull ?? 10000),
       ));
       
       // Use the separate dio instance for token refresh
@@ -163,4 +169,8 @@ class ApiClient {
   static Future<void> logout() async {
     await _clearTokens();
   }
+}
+
+extension _IntParsingOrNull on int? {
+  int? get orNull => this;
 }

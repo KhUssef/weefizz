@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'protected_image.dart';
 
 class FabricCard extends StatelessWidget {
   final String title;
@@ -19,15 +19,6 @@ class FabricCard extends StatelessWidget {
   this.onImagePressed,
   });
 
-  ImageProvider? _buildImageProvider(String path) {
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      return NetworkImage(path);
-    }
-    if (path.startsWith('/')) {
-      return FileImage(File(path));
-    }
-    return AssetImage(path);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,12 +64,13 @@ class FabricCard extends StatelessWidget {
                   color: Colors.grey[100],
                 ),
                 child: image != null
-                    ? ClipRRect(
+                    ? ProtectedImage(
+                        path: image!,
+                        width: double.infinity,
+                        height: 120,
+                        fit: BoxFit.cover,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                        child: Image(
-                          image: _buildImageProvider(image!)!,
-                          fit: BoxFit.cover,
-                        ),
+                        placeholder: const Icon(Icons.category, size: 40, color: Colors.grey),
                       )
                     : Icon(
                         Icons.category,

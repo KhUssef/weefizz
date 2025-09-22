@@ -7,10 +7,13 @@ import 'services/api_client.dart';
 import 'widgets/auth_wrapper.dart';
 import 'screens/login.dart';
 import 'screens/signup.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   ApiClient.initialize();
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -20,7 +23,7 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
-  ChangeNotifierProvider(create: (_) => FabricsService()),
+        ChangeNotifierProvider(create: (_) => FabricsService()),
         ChangeNotifierProvider(create: (_) => TemplatesService()),
       ],
       child: MaterialApp(
@@ -28,9 +31,9 @@ class MyApp extends StatelessWidget {
         title: 'Your App',
         initialRoute: '/',
         routes: {
-          '/': (context) => AuthWrapper(),
-          '/login': (context) => LoginPage(),
-          '/signup': (context) => SignupPage(),
+          '/': (context) => const AuthWrapper(),
+          '/login': (context) => const LoginPage(),
+          '/signup': (context) => const SignupPage(),
         },
       ),
     );

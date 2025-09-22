@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/fabrics.service.dart';
+import 'protected_image.dart';
 
 Future<Map<String, dynamic>?> showFabricPickerSheet(
   BuildContext context, {
   bool resetList = false,
+  List<Map<String, dynamic>>? allowedItems,
 }) {
   return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
@@ -14,13 +16,14 @@ Future<Map<String, dynamic>?> showFabricPickerSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (ctx) => _FabricPickerSheet(resetList: resetList),
+    builder: (ctx) => _FabricPickerSheet(resetList: resetList, allowedItems: allowedItems),
   );
 }
 
 class _FabricPickerSheet extends StatefulWidget {
   final bool resetList;
-  const _FabricPickerSheet({this.resetList = false});
+  final List<Map<String, dynamic>>? allowedItems;
+  const _FabricPickerSheet({this.resetList = false, this.allowedItems});
 
   @override
   State<_FabricPickerSheet> createState() => _FabricPickerSheetState();
@@ -55,7 +58,10 @@ class _FabricPickerSheetState extends State<_FabricPickerSheet> {
       top: false,
       child: Consumer<FabricsService>(
         builder: (context, svc, _) {
-          final items = svc.featuredFabrics.isNotEmpty ? svc.featuredFabrics : svc.fabrics;
+      final List<Map<String, dynamic>> items =
+        (widget.allowedItems != null)
+          ? widget.allowedItems!
+          : (svc.featuredFabrics.isNotEmpty ? svc.featuredFabrics : svc.fabrics);
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -80,7 +86,7 @@ class _FabricPickerSheetState extends State<_FabricPickerSheet> {
                   ],
                 ),
               ),
-              if (svc.isLoadingFeatured && items.isEmpty)
+        if (widget.allowedItems == null && svc.isLoadingFeatured && items.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(24.0),
                   child: Center(child: CircularProgressIndicator()),
@@ -99,7 +105,7 @@ class _FabricPickerSheetState extends State<_FabricPickerSheet> {
                       final m = items[index];
                       final title = (m['title'] ?? m['name'] ?? 'Sans nom').toString();
                       final subtitle = (m['type'] ?? '').toString();
-                      final img = (m['cachedImagePath'] ?? m['absoluteImageUrl'] ?? m['imageUrl']) as String?;
+          final img = (m['cachedImagePath'] ?? m['absoluteImageUrl'] ?? m['imageUrl']) as String?;
                       return ListTile(
                         leading: _Thumb(image: img),
                         title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -127,16 +133,15 @@ class _Thumb extends StatelessWidget {
     if (image == null || image!.isEmpty) {
       return const CircleAvatar(child: Icon(Icons.texture));
     }
-    final lower = image!.toLowerCase();
-    final isUrl = lower.startsWith('http://') || lower.startsWith('https://');
-    if (isUrl) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: Image.network(image!, width: 40, height: 40, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const CircleAvatar(child: Icon(Icons.texture))),
-      );
-    }
-    // Fallback: no file IO dependency, just show placeholder
-    return const CircleAvatar(child: Icon(Icons.texture));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: ProtectedImage(
+        path: image!,
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        placeholder: const Icon(Icons.texture),
+      ),
+    );
   }
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'camera_screen.dart';
 import 'dart:async';
 import '../services/api_client.dart';
+import '../widgets/protected_image.dart';
 import '../services/fabrics.service.dart';
 import '../widgets/type_selection_sheet.dart';
 import '../widgets/fabric_editor_sheet.dart';
@@ -124,6 +124,10 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         } else {
           _gabarits[0] = item;
         }
+        // Prefill top rename field with the current gabarit name
+        if (_identificationController.text.trim().isEmpty) {
+          _identificationController.text = name;
+        }
       });
   // Also hydrate fabrics from this gabarit's pieces (cache-first, then GET /fabric/:id)
   await _hydrateFabricsFromGabaritPieces(cached);
@@ -133,12 +137,12 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
   @override
   void dispose() {
     _identificationController.dispose();
-    _templateController.dispose();
+  _templateController.dispose();
     _materialController.dispose();
     _materialFocus.dispose();
     _materialDebounce?.cancel();
     _hideMaterialOverlay();
-    _templateController.dispose();
+  _hideTemplateOverlay();
   _templateFocus.dispose();
   _templateDebounce?.cancel();
     super.dispose();
@@ -1035,293 +1039,95 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 8),
-                      
-                      // Identification field
-                      // Identification + rename button (if a gabarit is loaded)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: _buildInputField(
-                              controller: _identificationController,
-                              label: 'Identification',
-                              placeholder: 'Votre projet (ex : veste coupe-vent)',
+                child: RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  edgeOffset: 12,
+                  displacement: 36,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => ConstrainedBox(
+                        constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                        const SizedBox(height: 8),
+                        
+                        // Identification field
+                        // Identification + rename button (if a gabarit is loaded)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: _buildInputField(
+                                controller: _identificationController,
+                                label: 'Identification',
+                                placeholder: 'Votre projet (ex : veste coupe-vent)',
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (_gabarits.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 22),
-                              child: SizedBox(
-                                width: 44,
-                                height: 44,
-                                child: ElevatedButton(
-                                  onPressed: _renaming ? null : () async {
-                                    if (_gabarits.isEmpty) return;
-                                    final id = _gabarits.first.id;
-                                    final newName = _identificationController.text.trim();
-                                    if (newName.isEmpty) return;
-                                    setState(() { _renaming = true; _renameOk = null; });
-                                    final ok = await context.read<TemplatesService>().patchGabarit(id, { 'name': newName, 'title': newName });
-                                    if (!mounted) return;
-                                    if (ok) {
-                                      setState(() { _renameOk = true; _renaming = false; });
-                                      // Update local card immediately
-                                      setState(() { _gabarits[0] = GabaritItem(id: _gabarits.first.id, name: newName, iconPath: _gabarits.first.iconPath, processedImagePath: _gabarits.first.processedImagePath, createdAt: _gabarits.first.createdAt); });
-                                      await Future.delayed(const Duration(seconds: 1));
+                            const SizedBox(width: 8),
+                            if (_gabarits.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 22),
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: ElevatedButton(
+                                    onPressed: _renaming ? null : () async {
+                                      if (_gabarits.isEmpty) return;
+                                      final id = _gabarits.first.id;
+                                      final newName = _identificationController.text.trim();
+                                      if (newName.isEmpty) return;
+                                      setState(() { _renaming = true; _renameOk = null; });
+                                      final ok = await context.read<TemplatesService>().patchGabarit(id, { 'name': newName, 'title': newName });
                                       if (!mounted) return;
-                                      setState(() { _renameOk = null; });
-                                    } else {
-                                      setState(() { _renameOk = false; _renaming = false; });
-                                      await Future.delayed(const Duration(seconds: 1));
-                                      if (!mounted) return;
-                                      setState(() { _renameOk = null; });
-                                    }
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black87,
-                                    side: const BorderSide(color: Color(0xFF4A6CF7)),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  child: () {
-                                    if (_renaming) {
-                                      return const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFF4A6CF7)));
-                                    }
-                                    if (_renameOk == true) {
-                                      return const Icon(Icons.check, color: Color(0xFF2E7D32));
-                                    }
-                                    if (_renameOk == false) {
-                                      return const Icon(Icons.close, color: Colors.red);
-                                    }
-                                    return const Icon(Icons.drive_file_rename_outline, color: Color(0xFF4A6CF7));
-                                  }(),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // Tissu search + plus button
-                      Text(
-                        'Tissu',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FractionallySizedBox(
-                              widthFactor: 0.92,
-                              child: CompositedTransformTarget(
-                                link: _materialLink,
-                                child: Container(
-                                  key: _materialFieldKey,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey[300]!),
-                                  ),
-                                  child: TextField(
-                                    controller: _materialController,
-                                    focusNode: _materialFocus,
-                                    onChanged: _onMaterialChanged,
-                                    decoration: InputDecoration(
-                                      hintText: 'Nom du tissu',
-                                      hintStyle: TextStyle(
-                                        color: Colors.grey[400],
-                                        fontSize: 16,
-                                      ),
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 16,
-                                      ),
+                                      if (ok) {
+                                        setState(() { _renameOk = true; _renaming = false; });
+                                        // Update local card immediately
+                                        setState(() { _gabarits[0] = GabaritItem(id: _gabarits.first.id, name: newName, iconPath: _gabarits.first.iconPath, processedImagePath: _gabarits.first.processedImagePath, createdAt: _gabarits.first.createdAt); });
+                                        await Future.delayed(const Duration(seconds: 1));
+                                        if (!mounted) return;
+                                        setState(() { _renameOk = null; });
+                                      } else {
+                                        setState(() { _renameOk = false; _renaming = false; });
+                                        await Future.delayed(const Duration(seconds: 1));
+                                        if (!mounted) return;
+                                        setState(() { _renameOk = null; });
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: Colors.black87,
+                                      side: const BorderSide(color: Color(0xFF4A6CF7)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                     ),
+                                    child: () {
+                                      if (_renaming) {
+                                        return const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Color(0xFF4A6CF7)));
+                                      }
+                                      if (_renameOk == true) {
+                                        return const Icon(Icons.check, color: Color(0xFF2E7D32));
+                                      }
+                                      if (_renameOk == false) {
+                                        return const Icon(Icons.close, color: Colors.red);
+                                      }
+                                      return const Icon(Icons.drive_file_rename_outline, color: Color(0xFF4A6CF7));
+                                    }(),
                                   ),
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: () => _showImageSourceDialog(
-                              type: 'fabric',
-                              title: 'Identification et Préparation\ndes Tissus',
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4A4E69),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(Icons.add, color: Colors.white),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Selected fabrics list below the search
-                      if (_fabrics.isNotEmpty) ...[
-                        const Text(
-                          'Tissus',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
-                        ListView.builder(
-                          itemCount: _fabrics.length,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemBuilder: (context, index) {
-                            final f = _fabrics[index];
-                            return Card(
-                              margin: const EdgeInsets.symmetric(vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              child: ListTile(
-                                leading: _FabricThumb(path: f.imagePath),
-                                title: Text(f.name),
-                                subtitle: (f.type != null || f.color != null || f.createdAt != null)
-                                    ? Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          if (f.type != null) Text('Type: ${f.type}') else const SizedBox.shrink(),
-                                          if (f.color != null) Text('Couleur: ${f.color}') else const SizedBox.shrink(),
-                                          if (f.createdAt != null)
-                                            Text('Créé le: ${f.createdAt!.day.toString().padLeft(2, '0')}/${f.createdAt!.month.toString().padLeft(2, '0')}/${f.createdAt!.year}')
-                                          else
-                                            const SizedBox.shrink(),
-                                        ],
-                                      )
-                                    : null,
-                                onTap: () async {
-                                  if (f.id == null || f.id!.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Ce tissu n\'est pas encore modifiable.')),
-                                    );
-                                    return;
-                                  }
-                                  final fabricMap = {
-                                    'id': f.id,
-                                    'title': f.name,
-                                    'description': f.description,
-                                    'type': f.type,
-                                    'color': f.color,
-                                  };
-                                  await showFabricEditorSheet(context, fabricMap);
-                                  if (!mounted) return;
-                                  final svc = context.read<FabricsService>();
-                                  final ok = await svc.fetchFabricById(f.id!);
-                                  if (!ok) return;
-                                  final updated = svc.currentFabric;
-                                  if (updated == null) return;
-                                  setState(() {
-                                    _fabrics[index] = FabricItem(
-                                      id: f.id,
-                                      name: (updated['title']?.toString() ?? f.name),
-                                      imagePath: f.imagePath,
-                                      type: updated['type']?.toString() ?? f.type,
-                                      color: updated['color']?.toString() ?? f.color,
-                                      createdAt: DateTime.tryParse(updated['createdAt']?.toString() ?? '') ?? f.createdAt,
-                                      description: updated['description']?.toString() ?? f.description,
-                                    );
-                                  });
-                                },
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete, color: Colors.red),
-                                  onPressed: () {
-                                    setState(() {
-                                      _fabrics.removeAt(index);
-                                    });
-                                  },
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-
-                      // Single template preview section (below fabrics)
-                      if (_gabarits.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Gabarit du projet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Builder(builder: (context) {
-                          final g = _gabarits.first;
-                          final absImage = (g.processedImagePath != null && g.processedImagePath!.isNotEmpty)
-                              ? g.processedImagePath!
-                              : (g.iconPath.isNotEmpty ? g.iconPath : '');
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.all(12),
-                              leading: _FabricThumb(path: absImage.isNotEmpty ? absImage : g.iconPath, size: 56),
-                              title: Text(g.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                              subtitle: (g.createdAt != null)
-                                  ? Text('Créé le: ${g.createdAt!.day.toString().padLeft(2, '0')}/${g.createdAt!.month.toString().padLeft(2, '0')}/${g.createdAt!.year}')
-                                  : const Text(''),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () {
-                                  setState(() {
-                                    _gabarits.clear();
-                                  });
-                                },
-                              ),
-                              onTap: () async {
-                                if (absImage.isEmpty) return;
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => ProjectDetailsScreen(
-                                      imageUrl: absImage,
-                                      gabaritId: g.id,
-                                      avoidProcessOnInit: true,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          );
-                        }),
-                      ],
-
-                      
-                      const SizedBox(height: 24),
-                      
-                      if (_gabarits.isEmpty) ...[
-                        // Template search + plus button (only when none selected)
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Tissu search + plus button
                         Text(
-                          'Gabarit',
+                          'Tissu',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
@@ -1335,20 +1141,20 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                               child: FractionallySizedBox(
                                 widthFactor: 0.92,
                                 child: CompositedTransformTarget(
-                                  link: _templateLink,
+                                  link: _materialLink,
                                   child: Container(
-                                    key: _templateFieldKey,
+                                    key: _materialFieldKey,
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(color: Colors.grey[300]!),
                                     ),
                                     child: TextField(
-                                      controller: _templateController,
-                                      focusNode: _templateFocus,
-                                      onChanged: _onTemplateChanged,
+                                      controller: _materialController,
+                                      focusNode: _materialFocus,
+                                      onChanged: _onMaterialChanged,
                                       decoration: InputDecoration(
-                                        hintText: 'Nom du gabarit',
+                                        hintText: 'Nom du tissu',
                                         hintStyle: TextStyle(
                                           color: Colors.grey[400],
                                           fontSize: 16,
@@ -1367,8 +1173,8 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                             const SizedBox(width: 8),
                             InkWell(
                               onTap: () => _showImageSourceDialog(
-                                type: 'template',
-                                title: 'Identification et Préparation\ndes Gabarits',
+                                type: 'fabric',
+                                title: 'Identification et Préparation\ndes Tissus',
                               ),
                               borderRadius: BorderRadius.circular(12),
                               child: Container(
@@ -1383,8 +1189,260 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
                             ),
                           ],
                         ),
-                      ],
-                    ],
+
+                        const SizedBox(height: 16),
+
+                        // Selected fabrics list below the search
+                        if (_fabrics.isNotEmpty) ...[
+                          const Text(
+                            'Tissus',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (int index = 0; index < _fabrics.length; index++)
+                                Builder(builder: (context) {
+                                  final f = _fabrics[index];
+                                  return SizedBox(
+                                    width: double.infinity,
+                                    child: Card(
+                                    margin: const EdgeInsets.symmetric(vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    child: ListTile(
+                                      leading: _FabricThumb(path: f.imagePath),
+                                      title: Text(f.name),
+                                      subtitle: (f.type != null || f.color != null || f.createdAt != null)
+                                          ? Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (f.type != null) Text('Type: ${f.type}') else const SizedBox.shrink(),
+                                                if (f.color != null) Text('Couleur: ${f.color}') else const SizedBox.shrink(),
+                                                if (f.createdAt != null)
+                                                  Text('Créé le: ${f.createdAt!.day.toString().padLeft(2, '0')}/${f.createdAt!.month.toString().padLeft(2, '0')}/${f.createdAt!.year}')
+                                                else
+                                                  const SizedBox.shrink(),
+                                              ],
+                                            )
+                                          : null,
+                                      onTap: () async {
+                                        if (f.id == null || f.id!.isEmpty) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Ce tissu n\'est pas encore modifiable.')),
+                                          );
+                                          return;
+                                        }
+                                        final fabricMap = {
+                                          'id': f.id,
+                                          'title': f.name,
+                                          'description': f.description,
+                                          'type': f.type,
+                                          'color': f.color,
+                                        };
+                                        await showFabricEditorSheet(context, fabricMap);
+                                        if (!mounted) return;
+                                        final svc = context.read<FabricsService>();
+                                        final ok = await svc.fetchFabricById(f.id!);
+                                        if (!ok) return;
+                                        final updated = svc.currentFabric;
+                                        if (updated == null) return;
+                                        setState(() {
+                                          _fabrics[index] = FabricItem(
+                                            id: f.id,
+                                            name: (updated['title']?.toString() ?? f.name),
+                                            imagePath: f.imagePath,
+                                            type: updated['type']?.toString() ?? f.type,
+                                            color: updated['color']?.toString() ?? f.color,
+                                            createdAt: DateTime.tryParse(updated['createdAt']?.toString() ?? '') ?? f.createdAt,
+                                            description: updated['description']?.toString() ?? f.description,
+                                          );
+                                        });
+                                      },
+                                      trailing: IconButton(
+                                        icon: const Icon(Icons.delete, color: Colors.red),
+                                        onPressed: () {
+                                          setState(() {
+                                            _fabrics.removeAt(index);
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  );
+                                }),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+
+                        // Single template preview section (below fabrics)
+                        if (_gabarits.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Gabarit du projet',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Builder(builder: (context) {
+                            final g = _gabarits.first;
+                            final absImage = (g.processedImagePath != null && g.processedImagePath!.isNotEmpty)
+                                ? g.processedImagePath!
+                                : (g.iconPath.isNotEmpty ? g.iconPath : '');
+                            return SizedBox(
+                              width: double.infinity,
+                              child: Card(
+                              margin: const EdgeInsets.symmetric(vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.all(12),
+                                leading: GestureDetector(
+                                  onTap: () async {
+                                    // Tap on the icon to change the gabarit's icon
+                                    final picker = ImagePicker();
+                                    final x = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1920, maxHeight: 1080);
+                                    if (x == null) return;
+                                    final svc = context.read<TemplatesService>();
+                                    final fields = { 'title': g.name };
+                                    final ok = await svc.updateGabaritWithImage(g.id, fields, x.path);
+                                    if (!mounted) return;
+                                    if (ok) {
+                                      // Refresh from backend to get updated icon URL
+                                      final map = await svc.fetchGabaritById(g.id);
+                                      final newIcon = (map?['absoluteIconUrl'] ?? map?['gabarit']?['iconPath'] ?? g.iconPath).toString();
+                                      setState(() {
+                                        _gabarits[0] = GabaritItem(
+                                          id: g.id,
+                                          name: g.name,
+                                          iconPath: newIcon.isNotEmpty ? newIcon : g.iconPath,
+                                          processedImagePath: g.processedImagePath,
+                                          createdAt: g.createdAt,
+                                        );
+                                      });
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Échec de la mise à jour de l\'icône')));
+                                    }
+                                  },
+                                  child: _FabricThumb(path: g.iconPath, size: 56),
+                                ),
+                                title: Text(g.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                subtitle: (g.createdAt != null)
+                                    ? Text('Créé le: ${g.createdAt!.day.toString().padLeft(2, '0')}/${g.createdAt!.month.toString().padLeft(2, '0')}/${g.createdAt!.year}')
+                                    : const Text(''),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  onPressed: () {
+                                    setState(() {
+                                      _gabarits.clear();
+                                    });
+                                  },
+                                ),
+                                onTap: () async {
+                                  if (absImage.isEmpty) return;
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => ProjectDetailsScreen(
+                                        imageUrl: absImage,
+                                        gabaritId: g.id,
+                                        avoidProcessOnInit: true,
+                                        allowedFabrics: _fabrics.map((f) => {
+                                          'id': f.id,
+                                          'title': f.name,
+                                          if (f.type != null) 'type': f.type,
+                                          if (f.color != null) 'color': f.color,
+                                          if (f.imagePath.isNotEmpty) 'absoluteImageUrl': f.imagePath,
+                                        }).toList(),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              ),
+                            );
+                          }),
+                        ],
+
+                        
+                        const SizedBox(height: 24),
+                        
+                        if (_gabarits.isEmpty) ...[
+                          // Template search + plus button (only when none selected)
+                          Text(
+                            'Gabarit',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FractionallySizedBox(
+                                  widthFactor: 0.92,
+                                  child: CompositedTransformTarget(
+                                    link: _templateLink,
+                                    child: Container(
+                                      key: _templateFieldKey,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.grey[300]!),
+                                      ),
+                                      child: TextField(
+                                        controller: _templateController,
+                                        focusNode: _templateFocus,
+                                        onChanged: _onTemplateChanged,
+                                        decoration: InputDecoration(
+                                          hintText: 'Nom du gabarit',
+                                          hintStyle: TextStyle(
+                                            color: Colors.grey[400],
+                                            fontSize: 16,
+                                          ),
+                                          border: InputBorder.none,
+                                          contentPadding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 16,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              InkWell(
+                                onTap: () => _showImageSourceDialog(
+                                  type: 'template',
+                                  title: 'Identification et Préparation\ndes Gabarits',
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4A4E69),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.add, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1485,6 +1543,69 @@ class _NewProjectScreenState extends State<NewProjectScreen> {
         ),
       ),
     );
+  }
+
+  // Pull-to-refresh: clear cached project and refetch using same logic
+  Future<void> _onRefresh() async {
+    try {
+      // Determine current gabarit id to refresh
+      String? id;
+      if (_gabarits.isNotEmpty) {
+        id = _gabarits.first.id;
+      } else {
+        id = widget.initialGabaritId;
+      }
+      if (id == null || id.isEmpty) {
+        // Nothing to refresh; small delay to satisfy RefreshIndicator
+        await Future.delayed(const Duration(milliseconds: 350));
+        return;
+      }
+
+      final svc = context.read<TemplatesService>();
+      // Drop any cached processed data for this gabarit
+      svc.removeProcessedInfo(id);
+
+      // Re-fetch from backend; prefer full info if already processed, otherwise GET by id
+      final fresh = await svc.fetchGabaritById(id);
+      if (!mounted) return;
+      if (fresh == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de rafraîchir le gabarit')),
+        );
+        return;
+      }
+
+      // Rebuild the single GabaritItem card from fresh data
+      final gab = fresh['gabarit'] as Map<String, dynamic>?;
+      final name = (gab?['name'] ?? fresh['name'] ?? 'Gabarit').toString();
+      final iconAbs = (fresh['absoluteIconUrl'] ?? fresh['absoluteImageUrl'] ?? '').toString();
+      final processedAbs = (fresh['absoluteProcessedImageUrl'] ?? '').toString();
+      final createdAt = DateTime.tryParse((gab?['createdAt'] ?? fresh['createdAt'] ?? '').toString());
+      setState(() {
+        final item = GabaritItem(
+          id: id!,
+          name: name,
+          iconPath: iconAbs,
+          processedImagePath: processedAbs.isNotEmpty ? processedAbs : null,
+          createdAt: createdAt,
+        );
+        if (_gabarits.isEmpty) {
+          _gabarits.add(item);
+        } else {
+          _gabarits[0] = item;
+        }
+        // Update identification input with latest name if empty or matches old name
+        if (_identificationController.text.trim().isEmpty) {
+          _identificationController.text = name;
+        }
+        _fabrics.clear();
+      });
+
+      // Rehydrate fabrics from fresh piece list
+      await _hydrateFabricsFromGabaritPieces(fresh);
+    } catch (_) {
+      // Swallow errors; RefreshIndicator already gives feedback
+    }
   }
 }
 
@@ -1593,8 +1714,6 @@ class _FabricThumb extends StatelessWidget {
   final double size;
   const _FabricThumb({required this.path, this.size = 48});
 
-  bool get _isUrl => path.toLowerCase().startsWith('http://') || path.toLowerCase().startsWith('https://');
-
   @override
   Widget build(BuildContext context) {
     if (path.isEmpty) {
@@ -1610,38 +1729,13 @@ class _FabricThumb extends StatelessWidget {
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: _isUrl
-          ? FutureBuilder<Map<String, String>>(
-              future: ApiClient.getAuthHeaders(),
-              builder: (context, snap) {
-                final headers = snap.data ?? const <String, String>{};
-                return Image.network(
-                  path,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                  headers: headers.isEmpty ? null : headers,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: size,
-                    height: size,
-                    color: Colors.grey[200],
-                    child: const Icon(Icons.broken_image, color: Colors.grey),
-                  ),
-                );
-              },
-            )
-          : Image.file(
-              File(path),
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: size,
-                height: size,
-                color: Colors.grey[200],
-                child: const Icon(Icons.broken_image, color: Colors.grey),
-              ),
-            ),
+      child: ProtectedImage(
+        path: path,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: const Icon(Icons.broken_image, color: Colors.grey),
+      ),
     );
   }
 }

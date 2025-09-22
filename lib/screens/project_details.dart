@@ -10,6 +10,7 @@ import '../widgets/fabric_picker_sheet.dart';
 import '../widgets/quantity_dialog.dart';
 import '../services/api_client.dart';
 import '../services/fabrics.service.dart';
+import '../widgets/protected_image.dart';
 
 // Screen to view processed gabarit, select pieces, and measure real scale between two points on the same piece.
 
@@ -17,12 +18,15 @@ class ProjectDetailsScreen extends StatefulWidget {
 	final String imageUrl;
 	final String? gabaritId;
 	final bool avoidProcessOnInit;
+	// Optional: restrict fabric picker to only these fabrics (from New Project screen)
+	final List<Map<String, dynamic>>? allowedFabrics;
 
 	const ProjectDetailsScreen({
 		super.key,
 		required this.imageUrl,
 		this.gabaritId,
 		this.avoidProcessOnInit = false,
+		this.allowedFabrics,
 	});
 
 	@override
@@ -103,8 +107,14 @@ class _ProjectDetailsScreenState extends State<ProjectDetailsScreen> {
 
 	Future<void> _resolveImageSize() async {
 		if (_imageNaturalSize != null) return;
-		final url = _displayImageUrl ?? widget.imageUrl;
-		final image = Image.network(url, headers: _imageHeaders);
+			final url = _displayImageUrl ?? widget.imageUrl;
+			// Ensure absolute URL if server returned a relative path
+			String effectiveUrl = url;
+			if (url.startsWith('/')) {
+				final base = ApiClient.dio.options.baseUrl;
+				effectiveUrl = base.endsWith('/') ? base.substring(0, base.length - 1) + url : base + url;
+			}
+			final image = Image.network(effectiveUrl, headers: _imageHeaders);
 		final completer = Completer<ui.Image>();
 		image.image.resolve(const ImageConfiguration()).addListener(
 			ImageStreamListener((ImageInfo info, bool _) {
@@ -448,7 +458,23 @@ class _ProjectDetailsScreenState extends State<ProjectDetailsScreen> {
 							final id = _selectedPieceId;
 							_removeMenu();
 							if (id == null) return;
-							final picked = await showFabricPickerSheet(context, resetList: true);
+							// Allowed list precedence: explicit from caller (New Project) -> resolved fabrics -> piece materials
+							final List<Map<String, dynamic>> allowed = [];
+							final Set<String> seen = {};
+							void addIfUnique(Map<String, dynamic> m) {
+								final fid = (m['id']?.toString() ?? '');
+								final key = fid.isNotEmpty ? fid : (m['title']?.toString() ?? m['name']?.toString() ?? '');
+								if (key.isEmpty || seen.contains(key)) return;
+								allowed.add(m);
+								seen.add(key);
+							}
+							if (widget.allowedFabrics != null) {
+								for (final m in widget.allowedFabrics!) { addIfUnique(m); }
+							}
+							for (final f in _resolvedFabrics) { addIfUnique(f); }
+							for (final entry in _pieceMaterials.entries) { addIfUnique(entry.value); }
+
+							final picked = await showFabricPickerSheet(context, resetList: true, allowedItems: allowed);
 							if (!mounted) return;
 														if (picked != null) {
 															setState(() {
@@ -667,15 +693,14 @@ class _ProjectDetailsScreenState extends State<ProjectDetailsScreen> {
 											key: _childStackKey,
 											children: [
 												// Base image
-												Positioned.fill(
-													child: _displayImageUrl == null
-															? const SizedBox.shrink()
-															: Image.network(
-																	_displayImageUrl!,
-																	headers: _imageHeaders,
-																	fit: BoxFit.contain,
-																),
-												),
+																								Positioned.fill(
+																									child: _displayImageUrl == null
+																											? const SizedBox.shrink()
+																											: ProtectedImage(
+																													path: _displayImageUrl!,
+																													fit: BoxFit.contain,
+																												),
+																								),
 
 												// Selected piece highlight
 												if (_selectedPieceId != null && _imageNaturalSize != null && _viewportSize != null)

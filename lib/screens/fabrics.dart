@@ -98,7 +98,7 @@ class _FabricsScreenState extends State<FabricsScreen> with AutomaticKeepAliveCl
             itemCount: fabrics.length,
             itemBuilder: (context, index) {
               final fabric = fabrics[index];
-              final img = (fabric['cachedImagePath'] ?? fabric['absoluteImageUrl'] ?? fabric['image']) as String?;
+              final img = (fabric['cachedImagePath'] ?? fabric['absoluteImageUrl'] ?? fabric['imageUrl'] ?? fabric['image']) as String?;
               final title = (fabric['title'] ?? fabric['name']  ?? fabric['color'] ?? 'Sans nom') as String;
               final date = (fabric['date'] ?? fabric['createdAt'] ?? '') as String;
               final favored = (fabric['favorited'] ?? false) as bool;
