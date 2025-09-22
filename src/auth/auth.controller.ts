@@ -29,6 +29,7 @@ export class AuthController {
   
   @Post('signup')
   register(@Body() signupDTO: signupDTO) {
+    console.log('SignupDTO:', signupDTO);
     return this.authService.signup(signupDTO);
   }
 

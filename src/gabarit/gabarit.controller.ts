@@ -12,7 +12,7 @@ import {
   Req,
   BadRequestException,
   Query,
-  Res
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
@@ -88,13 +88,20 @@ export class GabaritController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateGabaritDto: UpdateGabaritDto, @User() user: any) {
+  update(
+    @Param('id') id: string,
+    @Body() updateGabaritDto: UpdateGabaritDto,
+    @User() user: any,
+    @Req() req: Request,
+  ) {
+    // Debug: log full incoming request details and body
+
     return this.gabaritService.update(id, updateGabaritDto, user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id/with-image')
-  @UseInterceptors(FileInterceptor('image', {
+  @UseInterceptors(FileInterceptor('file', {
     storage: diskStorage({
       destination: './uploads/gabarits',
       filename: (req, file, callback) => {
@@ -152,54 +159,31 @@ export class GabaritController {
     res.send(resultBuffer);
   }
 
+  // Consolidated processing endpoint: runs full processing, persists results, returns metadata
   @UseGuards(JwtAuthGuard)
-  @Get('process-full/:id')
-  async processGabaritFull(@Param('id') id: string, @User() user: any, @Res() res: Response) {
-    const result = await this.gabaritService.processGabaritFull(id, user.id);
-    
-    // Set custom headers with the metadata (avoiding base64)
-    res.setHeader('Content-Type', 'image/png');
-    res.setHeader('X-Gabarit-Total-Pieces', result.totalPieces.toString());
-    res.setHeader('X-Gabarit-Image-Width', result.imageDimensions.width.toString());
-    res.setHeader('X-Gabarit-Image-Height', result.imageDimensions.height.toString());
-    res.setHeader('X-Gabarit-Pieces', JSON.stringify(result.gabaritPieces));
-    
-    // Return the actual image as binary
-    return res.end(result.processedImage);
+  @Get('process/:id')
+  async processGabarit(
+    @Param('id') id: string,
+    @User() user: any,
+    @Query('fabricId') fabricId?: string,
+  ) {
+    const result = await this.gabaritService.processAndPersist(id, user.id, fabricId);
+  // Return entity-shaped payload without user, include fabricId for pieces
+  return result;
   }
 
+  // Calculate required fabric amounts per fabric for a given gabarit and multiplier `number`
   @UseGuards(JwtAuthGuard)
-  @Get('process-full-info/:id')
-  async processGabaritFullInfo(@Param('id') id: string, @User() user: any) {
-    const result = await this.gabaritService.processGabaritFull(id, user.id);
-    
-    // Return only the metadata as JSON, with a URL to get the image
-    return {
-      gabaritPieces: result.gabaritPieces,
-      totalPieces: result.totalPieces,
-      imageDimensions: result.imageDimensions,
-      processedImageUrl: `/gabarit/process-full-image/${id}`,
-    };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('process-full-image/:id')
-  async processGabaritFullImage(@Param('id') id: string, @User() user: any, @Res() res: Response) {
-    try {
-      const result = await this.gabaritService.processGabaritFull(id, user.id);
-      
-      // Debug: Log the buffer length
-      console.log('📷 Processed image buffer length:', result.processedImage.length);
-      
-      // Set proper headers for image response
-      res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Content-Length', result.processedImage.length);
-      
-      // Send the buffer directly
-      return res.end(result.processedImage);
-    } catch (error) {
-      console.error('❌ Error in processGabaritFullImage:', error);
-      throw error;
+  @Get('calcul/:id')
+  async calculateFabricAmounts(
+    @Param('id') id: string,
+    @Query('number') numberParam: string,
+    @User() user: any,
+  ) {
+    const n = Number(numberParam);
+    if (!numberParam || Number.isNaN(n) || n <= 0) {
+      throw new BadRequestException('Query parameter "number" must be a positive number');
     }
+    return this.gabaritService.calculateFabricRequirements(id, user.id, n);
   }
 }

@@ -29,7 +29,6 @@ import { userInfo } from 'os';
 // removed duplicate import of Parse pipes
 @Controller('fabric')
 export class FabricController {
-  private idk = 0;
 
   constructor(private readonly fabricService: FabricService) {}
 
@@ -60,9 +59,6 @@ export class FabricController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request
   ): Promise<any> {
-    console.log('req.body:', req.body);
-    console.log("Creating fabric with data:", createFabricDto);
-    console.log("Uploaded file:", file);
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -104,39 +100,14 @@ export class FabricController {
   async identify(
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request
-  ): Promise<{ fabric: any; predictions: Array<{ type: string; confidence: number }> }> {
-    console.log(this.idk++);
+  ): Promise<{ fabric: any; predictions: Array<{ type: string; confidence?: number }> }> {
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
 
-
-    const userId = (req.user as any).id;
-
-    // Predetermined data for testing purposes
-    const preset = {
-      title: 'lollololololdff',
-      description: '+dededcccckk',
-      color: 'kjjj',
-      type: 'ffcdd',
-    } as const;
-
-    // Reuse the same creation logic as the regular create endpoint
-    const fabricData = {
-      ...preset,
-      filePath: file.path,
-    } as any;
-
-  const created = await this.fabricService.createWithUserId(fabricData, userId);
-
-    // Return a mock identification result: a list of { type, confidence }
-    const candidates = [preset.type, 'cotton', 'linen', 'silk', 'wool'];
-    const results = candidates.map((t) => ({
-      type: t,
-      confidence: Math.floor(60 + Math.random() * 40), // 60-99
-    }));
-  console.log("Mock identification results:", results);
-  return { fabric: created, predictions: results };
+  const userId = (req.user as any).id;
+  const { fabric, predictions } = await this.fabricService.identifyFromImage(file.path, userId);
+  return { fabric, predictions };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -148,7 +119,6 @@ export class FabricController {
     @Query("page", new ParseIntPipe({ optional: true })) page: number=0, 
     @Query("limit", new ParseIntPipe({ optional: true })) limit: number=10
   ): Promise<any[]> {
-    console.log(this.idk++, { downsized, page, limit });
     const userId = user.id;
     const start = page * limit; // Convert page to start index
     return this.fabricService.findFabricsByUser(userId, downsized, start, limit);
@@ -164,7 +134,6 @@ export class FabricController {
     @Query('page') page: number = 0,
     @Query('limit') limit: number = 10,
   ): Promise<any[]> {
-    console.log(this.idk++);
     const userId = user.id;
     const start = page * limit;
     return this.fabricService.searchFabricsByUser(userId, q?.trim() || '', downsized, start, limit);
@@ -182,9 +151,10 @@ export class FabricController {
   update(
     @Param('id') id: string, 
     @Body() updateFabricDto: UpdateFabricDto,
-    @Req() req: Request
+    @Req() req: Request,
+    @User() user: any
   ): Promise<any> {
-    const userId = (req.user as any).id;
+    const userId = user.id;
     return this.fabricService.updateWithOwnership(id, updateFabricDto, userId);
   }
 
@@ -250,8 +220,6 @@ export class FabricController {
   @Post('test-upload')
 @UseInterceptors(FileInterceptor('image'))
 async testUpload(@Req() req: Request) {
-  console.log('req.body:', req.body);
-  console.log('req.file:', (req as any).file);
   return { body: req.body, file: (req as any).file };
 }
 

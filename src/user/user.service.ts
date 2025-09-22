@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
@@ -13,13 +13,21 @@ export class UserService {
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const user = this.userRepository.create(createUserDto);
-    return await this.userRepository.save(user);
+    try {
+      return await this.userRepository.save(user);
+    } catch (err: any) {
+      // Handle unique constraint violation for email
+      if (err?.code === 'ER_DUP_ENTRY' || err?.code === '23505') {
+        throw new ConflictException('Email already in use');
+      }
+      throw err;
+    }
   }
 
   async findByEmail(email: string): Promise<User> {
     const user = await this.userRepository.findOne({ where: { email } });
     if (!user) {
-      throw new Error('User not found');
+  throw new NotFoundException('User not found');
     }
     return user;
   }
@@ -27,17 +35,31 @@ export class UserService {
   async findOne(id: number): Promise<User> {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) {
-      throw new Error('User not found');
+  throw new NotFoundException('User not found');
     }
     return user;
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
-    await this.userRepository.update(id, updateUserDto);
+    const exists = await this.userRepository.findOne({ where: { id } });
+    if (!exists) {
+      throw new NotFoundException('User not found');
+    }
+    try {
+      await this.userRepository.update(id, updateUserDto);
+    } catch (err: any) {
+      if (err?.code === 'ER_DUP_ENTRY' || err?.code === '23505') {
+        throw new ConflictException('Email already in use');
+      }
+      throw err;
+    }
     return this.findOne(id);
   }
 
   async remove(id: number): Promise<void> {
-    await this.userRepository.delete(id);
+    const result = await this.userRepository.delete(id);
+    if (!result.affected) {
+      throw new NotFoundException('User not found');
+    }
   }
 }

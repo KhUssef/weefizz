@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
 import { UserService } from '../user/user.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -62,24 +62,39 @@ export class AuthService {
     };
   }
   async signup(signupDTO: signupDTO) {
-    try {    
-      const  existingUser = await this.usersService.findByEmail(signupDTO.email);
-    } catch (error) {
-      if (error.message !== 'User not found') {
+    // Ensure required fields are present (ValidationPipe should enforce, but double-check here)
+    if (!signupDTO?.email || !signupDTO?.password || !signupDTO?.username) {
+      throw new BadRequestException('email, username and password are required');
+    }
+
+    // Check if user already exists
+    try {
+      const existing = await this.usersService.findByEmail(signupDTO.email);
+      if (existing) {
+        throw new ConflictException('Email already registered');
+      }
+    } catch (error: any) {
+      // usersService.findByEmail throws 'User not found' when absent; ignore that case
+      if (error?.message && error.message !== 'User not found') {
         throw new UnauthorizedException('Error checking existing user');
       }
     }
-    
+
+    // Hash password safely
     const hashedPassword = await bcrypt.hash(signupDTO.password, 10);
+
     const user = await this.usersService.create({
-      email : signupDTO.email,
+      email: signupDTO.email,
       username: signupDTO.username,
-      isEmailVerified : false,
+      isEmailVerified: false,
       password: hashedPassword,
     } as User);
-    if(!user) {
+
+    if (!user) {
       throw new UnauthorizedException('User registration failed');
-      }
+    }
+
+    return { id: user.id, email: user.email, username: user.username };
     }
   async refresh(refreshToken: string) {
     console.log('Received refresh token:', refreshToken);

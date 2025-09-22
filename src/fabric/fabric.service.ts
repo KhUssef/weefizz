@@ -9,6 +9,9 @@ import { CreateFabricDto } from './dto/create-fabric.dto';
 import * as sharp from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs';
+import { UpdateFabricDto } from './dto/update-fabric.dto';
+import axios from 'axios';
+import * as FormData from 'form-data';
 
 @Injectable()
 export class FabricService{
@@ -16,6 +19,66 @@ export class FabricService{
     @InjectRepository(Fabric)
     private fabricRepository: Repository<Fabric>,
   ) {
+  }
+
+  // Identify fabric by sending the image to an external service, then create a Fabric
+  async identifyFromImage(
+    filePath: string,
+    userId: number,
+  ): Promise<{ fabric: any; predictions: Array<{ type: string; confidence?: number }> }> {
+    const absPath = path.join(process.cwd(), filePath);
+    const filename = path.basename(filePath);
+
+    // Build multipart form with the image file
+    const form = new FormData();
+    form.append('files', fs.createReadStream(absPath), filename);
+
+    // Call external API (expects JSON with results array of { filename, predictions })
+    const Base_URL = process.env.FABRIC_URL || 'http://127.0.0.1:8000';
+    const url = `${Base_URL}/predict`;
+    const response = await axios.post(url, form, {
+      headers: {
+        ...form.getHeaders(),
+        Accept: 'application/json',
+      },
+      timeout: 20000,
+    });
+
+    const data = response.data as any;
+    console.log(data[0])
+    let predictionsRaw: any[] = [];
+    if (Array.isArray(data?.results)) {
+      predictionsRaw = data.results[0]?.predictions ?? [];
+    } else if (Array.isArray(data?.predictions)) {
+      predictionsRaw = data.predictions;
+    } else {
+      predictionsRaw = [];
+    }
+
+    // Normalize predictions to { type, confidence? }
+    const predictions: Array<{ type: string; confidence?: number }> = predictionsRaw.map((p: any) => {
+      if (typeof p === 'string') return { type: p };
+      if (p && typeof p === 'object') {
+        const type = p.type ?? p.label ?? String(p.name ?? 'unknown');
+        const confidence = typeof p.confidence === 'number' ? p.confidence*100 : (typeof p.score === 'number' ? p.score*100 : undefined);
+        return { type, confidence };
+      }
+      return { type: 'unknown' };
+    });
+
+    const top = predictions[0]?.type || 'unknown';
+
+    // Create Fabric entity using identified top type; keep other fields minimal
+    const fabricData: any = {
+      type: top,
+      title: top,
+      color: 'unknown',
+      description: `Identified from image ${filename}`,
+      filePath,
+    };
+
+    const created = await this.createWithUserId(fabricData, userId);
+    return { fabric: created, predictions };
   }
 
   async create(data: Partial<Fabric>): Promise<any> {
@@ -104,12 +167,8 @@ export class FabricService{
     };
   }
 
-  async updateWithOwnership(id: string, updateData: Partial<Fabric>, userId: number, newFilePath?: string): Promise<any> {
-
-    if(updateData.user) {
-      if(updateData.user.id!== userId)
-        throw new ForbiddenException('You cannot change the user of a fabric');
-    }
+  async updateWithOwnership(id: string, updateData: UpdateFabricDto, userId: number, newFilePath?: string): Promise<any> {
+    console.log(updateData);
     const existingFabric = await this.fabricRepository.findOne({ 
       where: { id, user: { id: userId } },
     });

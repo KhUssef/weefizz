@@ -8,7 +8,7 @@ export class Piece {
   id: number;
 
   /** The template (gabarit) this piece comes from */
-  @ManyToOne(() => Gabarit, gabarit => gabarit.pieces, { onDelete: 'SET NULL' })
+  @ManyToOne(() => Gabarit, gabarit => gabarit.pieces, { onDelete: 'CASCADE', nullable: false })
   gabarit: Gabarit;
 
   /** The fabric chosen for this piece (optional) */

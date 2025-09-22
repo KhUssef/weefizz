@@ -36,7 +36,7 @@ export class Fabric {
   @ManyToOne(() => User, user => user.fabrics, { onDelete: 'CASCADE' })
   user: User;
 
-  @OneToMany(() => Piece, piece => piece.fabric, { onDelete: 'SET NULL' })
+  @OneToMany(() => Piece, piece => piece.fabric)
   pieces: Piece[];
 
   @Column({default: false})
